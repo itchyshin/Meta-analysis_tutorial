@@ -1,0 +1,2727 @@
+---
+title: "Quantitative synthesis: a practical guide on meta-analysis, meta-regression, and publication bias tests for environmental sciences "
+subtitle: "A step-by-step tutorial (implementation) along with theoretical explanation"
+author: "Yefeng Yang, Malgorzata Lagisz, Shinichi Nakagawa"
+date: "last update Oct 2022"
+output:
+#  rmdformats::readthedown: 
+  rmdformats::robobook:
+    code_folding: hide
+    code_download: false
+    thumbnails: false
+    highlight: tango
+    lightbox: true
+    gallery: false
+    toc_depth: 4
+    fig.align: center
+    fig_caption: no
+    cache: yes
+    use_bookdown: false
+  pkgdown:
+    as_is: true 
+editor_options:
+  chunk_output_type: console
+#bibliography: "ref/references.bib"
+# biblio-style: "apalike"
+#csl: "./ref/neuroscience-and-biobehavioral-reviews.csl"
+link-citations: yes  
+---
+
+# Preface
+
+We acknowledge that this online tutorial has borrowed some ideas and code from published papers in Prof. Shinichi Nakagawa's lab ([see full publication list](http://www.i-deel.org/publications.html)) and from  (Associate) Prof. Wolfgang Viechtbauer's versatile `R` package `metafor` ([see the documentation](https://wviechtb.github.io/metafor/), [GitHub page](https://github.com/cran/metafor), and [package webpage](https://www.metafor-project.org/)). 
+
+We thanks the the two groups for their good lab culture of Open Science and their advocate of Open Science practices. We also call for more Open Science practices in the environmental sciences, for example, data sharing, code sharing, transparent reporting and open archiving, to make the field more **open**, **reliable**, and **transparent**.
+
+```{r global options, include=FALSE}
+library(knitr)
+library(rmdformats)
+library(palmerpenguins)
+## Global options
+# options(max.print = "75")
+knitr::opts_chunk$set(
+  echo = FALSE, cache = FALSE, prompt = FALSE,
+  tidy = FALSE, comment = NA,
+  message = FALSE, warning = FALSE
+)
+opts_knit$set(width = 75)
+
+```
+
+
+# Loading packages
+
+Load the necessary `R` packages for data manipulation, visualizations and model implementation. Note that if your <code>R</code> does not have the following packages, we need to install them by using `install.packages()` for CRAN packages or `devtools::install_github()` for those archived on github repositories: `tidyverse`, `knitr`, `DT`, `readxl`, `metafor`, `clubSandwich`, `orchaRd`, `MuMIn`, `patchwork`, `GoodmanKruskal`, `networkD3`, `ggplot2`, `ggsignif`, `visdat`, `ggalluvial`, `ggthemr`, `cowplot`, `grDevices`, `png`, `grid`, `gridGraphics`, `pander`, `formatR`, `rmdformats`.
+
+```{r load packages, cache = FALSE}
+pacman::p_load(tidyverse, 
+               here,
+               DT,
+               ggpubr,
+               readxl, 
+               metafor,
+               clubSandwich,
+               orchaRd, 
+               MuMIn,
+               glmulti,
+               metagear,
+               patchwork,
+               stringr,
+               mice,
+               GoodmanKruskal,
+               networkD3,
+               ggplot2,
+               plotly,
+               ggsignif,
+               visdat,
+               ggalluvial,
+               ggthemr, 
+               cowplot,
+               grDevices,
+               png,
+               grid,
+               gridGraphics,
+               pander,
+               formatR
+               )
+
+
+```
+
+# Load custom functions
+```{r custom functions}
+############################################################################
+#' @title cv_avg
+#' @description Calculates the weighted average CV^2 within a study and the weighted average CV^2 across a study
+#' @param x Mean of an experimental group
+#' @param sd Standard deviation of an experimental group
+#' @param n The sample size of an experimental group
+#' @param group Study, grouping or cluster variable one wishes to calculate the within and between weighted CV^2. In meta-analysis this will most likely be 'study'.
+#' @param data The dataframe containing the mean, sd, n and grouping variables
+#' @param label A character string specifying the label one wishes to attach to columns to identify the treatment. Otherwise, if not specified it will default to the variable name for x
+#' @param sub_b A logical indicating whether the between study CV^2 (b_CV2) should be appended to the data only ('TRUE') or whether both within study CV^2 (w_CV2), mean sample size (n_mean) and between study CV^2 (b_CV2) should all be appended to the data only ('FALSE')
+#' @param cv2 A logical indicating whether one should take the weighted average of CV2 or the weighted average of CV followed by squaring this average. Default to FALSE.
+#' @example \dontrun{
+#' # test data for cv_avg function
+#' library(tidyverse)
+#' set.seed(76)
+#' x1 = rnorm(16, 6, 1)
+#' x2 = rnorm(16, 6, 1)
+#' test_dat <- data.frame(stdy = rep(c(1,2,3,4), each = 4),x1 = x1,sd1 = exp(log(x1)*1.5 + rnorm(16, 0,
+#' sd = 0.10)),n1 = rpois(16, 15),x2 = x2,sd2 = exp(log(x2)*1.5 + rnorm(16, 0, sd = 0.10)),n2 = rpois(16, 15))
+#' rm(list = c("x1", "x2"))
+#' # # Now generate some missing data
+#' t2 <- gen.miss(test_dat, "sd1", "sd2", 6)
+#' t2_cv2 <- cv_avg(x = x1, sd = sd1, n = n1, stdy, data =  t2, sub_b = FALSE, cv2 = TRUE)
+#' t2_cv2 <- cv_avg(x2, sd2, n2, stdy, label = "2", data =  t2_cv, sub_b = FALSE)
+#' # Check calculations are correct. All match what is expected
+#' test <- t2_cv %>%  filter(stdy == "1")
+#' # Within
+#' mean(test$n1) # Matches 14.75
+#' mean(test$n2) # Matches 14
+#' # CV^2
+#' weighted.mean((test$sd1 / test$x1)^2, test$n1, na.rm = T)
+#' weighted.mean((test$sd2 / test$x2)^2, test$n2, na.rm = T)
+#' # mean(CV)^2
+#' t2_cv <- cv_avg(x = x1, sd = sd1, n = n1, stdy, data =  t2, sub_b = FALSE, cv2 = FALSE)
+#' weighted.mean((test$sd1 / test$x1), test$n1, na.rm = T)^2
+#' # Between
+#' wCV1 = unique(t2_cv2$w_CV2_x1)
+#' w_nt1 = c(59,58,58,50)
+#' weighted.mean(wCV1, w_nt1)
+#' wCV2 = unique(t2_cv2$w_CV2_2)
+#' w_nt2 = c(56, 56, 72, 63)
+#' weighted.mean(wCV2, w_nt2)
+#' }
+
+cv_avg <- function(x, sd, n, group, data, label = NULL, sub_b = TRUE, cv2=FALSE){
+
+  # Check if the name is specified or not. If not, then assign it the name of the mean, x, variable input in the function. https://stackoverflow.com/questions/60644445/converting-tidyeval-arguments-to-string
+  if(is.null(label)){
+    label <- purrr::map_chr(enquos(x), rlang::as_label)
+  }
+
+  # Calculate between study CV. Take weighted mean CV within study, and then take a weighted mean across studies of the within study CV. Weighted based on sample size and pooled sample size.
+  b_grp_cv_data <- data                                             %>%
+    dplyr::group_by({{group}})                            %>%
+    dplyr::mutate(   w_CV2 = weighted_CV({{sd}}, {{x}}, {{n}}, cv2=cv2),
+                     n_mean = mean({{n}}, na.rm = TRUE))   %>%
+    dplyr::ungroup(.)                                     %>%
+    dplyr::mutate(b_CV2 = weighted.mean(w_CV2, n_mean, na.rm = TRUE), .keep = "used")
+
+  # Make sure that label of the calculated columns is distinct from any other columns
+  names(b_grp_cv_data) <- paste0(names(b_grp_cv_data), "_", label)
+
+  # Append these calculated columns back to the original data and return the full dataset.
+  if(sub_b){
+    b_grp_cv_data <- b_grp_cv_data %>% dplyr::select(grep("b_", names(b_grp_cv_data)))
+    dat_new <- cbind(data, b_grp_cv_data)
+  } else {
+    dat_new <- cbind(data, b_grp_cv_data)
+  }
+
+  return(data.frame(dat_new))
+}
+
+############################################################################
+
+#' @title weighted_CV
+#' @description Calculates the weighted average CV^2 or CV followed by squaring within a study and the weighted averages CV^2 across a studies
+#' @param sd Standard deviation of an experimental group
+#' @param x Mean of an experimental group
+#' @param n The sample size of an experimental group
+#' @param cv2 Logical indicating whether the weighted average of CV^2 or CV should be taken (followed by squaring weighted average CV). Defaults to weighted average of CV.
+
+weighted_CV <- function(sd, x, n, cv2=FALSE){
+  if(cv2){
+    weighted.mean(na_if((sd / x)^2, Inf), n, na.rm = TRUE)
+  }else{
+    weighted.mean(na_if((sd / x), Inf), n, na.rm = TRUE)^2
+  }
+}
+
+############################################################################
+
+#' @title get_est
+#' @description Extracts estimates from rma.mv and rma model objects
+#' @param model The rma.mv model object
+
+get_est <- function(model){
+  est <- coef(model)
+  ci.lb <- model$ci.lb
+  ci.ub <- model$ci.ub
+  se <- model$se
+  return(data.frame(Est. = est, SE=se, "95% LCI" = ci.lb, "95% UCI" = ci.ub, check.names = FALSE))
+}
+
+############################################################################
+
+#' @title lnrr_laj
+#' @description Calculates log response ratio based on Taylor expansion from Jajeunesse 2011
+#' @param m1 Mean of treatment group 1
+#' @param m2 Mean of treatment group 2
+#' @param cv1_2 Coefficient of variation squared (CV^2) for treatment group 1
+#' @param cv2_2 Coefficient of variation squared (CV^2) for treatment group 2
+#' @param n1 Sample size for treatment group 1
+#' @param n2 Sample size for treatment group 2
+#'
+lnrr_laj <- function(m1, m2, cv1_2, cv2_2, n1, n2){
+  log(m1 / m2) + 0.5*((cv1_2 / n1) - (cv2_2 / n2))
+}
+
+############################################################################
+
+#' @title v_lnrr_laj
+#' @description Calculates the sampling variance for log response ratio based on second order Taylor expansion proposed by Lajeunesse 2011
+#' @param cv1_2 Coefficient of variation squared (CV^2) for treatment group 1
+#' @param cv2_2 Coefficient of variation squared (CV^2) for treatment group 2
+#' @param n1 Sample size for treatment group 1
+#' @param n2 Sample size for treatment group 2
+v_lnrr_laj <- function(cv1_2, cv2_2, n1, n2){
+  ((cv1_2) / n1) + ((cv2_2) / n2) +
+    ((cv1_2)^2 / (2*n1)^2) + ((cv2_2)^2 / (2*n2)^2)
+}
+
+############################################################################
+
+#' @title gen.miss
+#' @description Generates random missing data in two columns of a meta-analytic dataset
+#' @param data The dataframe containing the mean, sd, n and grouping variables
+#' @param missVar A character string specifying the first column one wishes to have missing data. Example, "sd1" column.
+#' @param missCol2 A character string specifying the second column one wishes to have missing data. Example, "sd2" column.
+#' @param n_miss The number of missing data (NA) one wishes to introduce to the missVar and missCol2
+gen.miss <- function(data, missVar, missCol2, n_miss){
+  data[sample(rownames(data), n_miss), missVar] <- NA
+  data[is.na(data[,missVar]), missCol2] <- NA
+  return(data)
+}
+
+
+############################################################################
+# Effect size (lnRR and SMD) for 2 main effects and interaction effect
+
+
+interactive_es <- function(CC_n, CC_mean, CC_SD,
+                           EC_n, EC_mean, EC_SD,
+                           CS_n, CS_mean, CS_SD,
+                           ES_n, ES_mean, ES_SD)
+  {
+    # lnRR
+    # main effect for environmental group
+    lnRR_E <- log(0.5*(ES_mean + EC_mean)) - 
+      log(0.5*(CS_mean+ CC_mean))
+    
+    lnRRV_E <-  (1/(ES_mean + EC_mean))^2*(ES_SD^2 / ES_n + EC_SD^2 / EC_n) + 
+      (1/(CS_mean + CC_mean))^2*(CS_SD^2 / CS_n + CC_SD^2 / CC_n)
+    
+    # main effect for stress group
+    lnRR_S <- log(0.5*(ES_mean + CS_mean)) - 
+      log(0.5*(EC_mean+ CC_mean))
+    
+    lnRRV_S <- lnRRV_E
+    
+    # interaction between experimental and stress groups
+    
+    lnRR_ES <-   (log(ES_mean) - log(CS_mean)) - 
+      (log(EC_mean) - log(CC_mean))
+    
+    
+    lnRRV_ES <- 
+      (((ES_SD)^2 / ((ES_mean)^2*ES_n)) + 
+         ((EC_SD)^2 / ((EC_mean)^2*EC_n)) + 
+         ((CS_SD)^2 / ((CS_mean)^2*CS_n)) +
+         ((CC_SD)^2 / ((CC_mean)^2*CC_n)))
+
+    effect <- tibble(
+      # lnRR
+      lnRR_E = lnRR_E,
+      lnRRV_E = lnRRV_E, 
+      lnRR_S = lnRR_S, 
+      lnRRV_S = lnRRV_S,
+      lnRR_ES =lnRR_ES, 
+      lnRRV_ES = lnRRV_ES
+    )
+    effect
+}
+
+
+############################################################################
+
+# meta-analysis of magnitude
+## folded effect size
+folded_es <-function(mean, variance){ # the sampling variance of magnitude   
+  mu <- mean
+  sigma <- sqrt(variance)
+  fold_mu <- sigma*sqrt(2/pi)*exp((-mu^2)/(2*sigma^2)) + mu*(1 - 2*pnorm(-mu/sigma))
+  fold_mu
+}
+## folded variance
+folded_var <- function(mean, variance){ # the sampling variance of magnitude   
+  mu <- mean
+  sigma <- sqrt(variance)
+  fold_mu <- sigma*sqrt(2/pi)*exp((-mu^2)/(2*sigma^2)) + mu*(1 - 2*pnorm(-mu/sigma))
+  fold_se <- sqrt(mu^2 + sigma^2 - fold_mu^2)
+  # adding se to make bigger mean
+  fold_v <- fold_se^2
+  fold_v
+}
+
+############################################################################
+
+# custom function for extracting mean and CI from each metafor model
+estimates.model <- function(model){
+  db.mf <- data.frame(round(model$b, 3),row.names = 1:nrow(model$b))
+  db.mf <- cbind(db.mf,round(model$ci.lb, 3),round(model$ci.ub,3),row.names(model$b))
+  names(db.mf) <- c("mean","lower","upper","estimate")
+  return(db.mf[,c("estimate","mean","lower","upper")])
+}
+
+############################################################################
+
+```
+
+
+# Choosing an effect size statistic {.tabset} 
+
+## Brief theory
+
+Biologically, a effect sizes ($z_j$ in the main test) is used to quantify the magnitude or strength of the effect of your interest. Statistically (in the context of meta-analytic model), an effect size serves as the response variable or dependent variable. The choice of effect sizes is primarily dependent on your scientific questions or hypotheses. We categorize effect size statistics into three broad types.
+
+- Single-group effects 
+
+A statistical summary form one group; e.g., proportion, mean, log standard deviation (lnSD), log coefficient of variation (lnCV).
+ 
+- Comparative effects 
+
+Comparing statistics between two groups e.g., standardised mean difference (SMD; well known estimators: Hedges’ g or Cohen’s d), log response ratio  (lnRR; aka ratio of means), mean difference (MD), risk (proportion) difference (RD), log odds ratio (lnOR), log variability ratio (lnVR), log coefficient of variation ratio (lnCV).
+
+- Association statistics 
+
+Relationships between two variables; e.g., Fisher’s z-transformation of correlation correlation coefficient, *r* (*Zr*).
+
+The definition, formulas and explanations of commonly used effect sizes (and their sampling variances, $\nu_j$) can be found in Table 3 in our main text.
+
+## Calculating effect sizes
+
+For a chosen effect size, you can calculate it's point estimate ($z_j$) and  sampling variance ($\nu_j$) using the formulas detailed in Table 3. Alternatively, we can use function `escalc()` in `metafor` package for calculation. Let's first load the dataset of our first working example from @midolo2019global, who meta-analysed the intraspecific change in seven morpho‐ecophysiological leaf traits along global elevational gradients.
+
+<pre class="code rsplus">
+dat_Midolo_2019 <- read.csv(here("data","Midolo_2019_Global Change Biology.csv"))
+</pre> 
+
+```{r load data1, cache = FALSE}
+### import dataset
+dat_Midolo_2019 <- read.csv(here("data","Midolo_2019_Global Change Biology.csv"))
+```
+
+For the purposes of illustration, we only keep the columns that are necessary to show the meta-analytic techniques we elaborate in the main text.
+
+__Table S1__  
+The variables in the first worked example (@midolo2019global).
+```{r Table S1}
+### drop unused columns
+dat_Midolo_2019 <- dat_Midolo_2019[,which(colnames(dat_Midolo_2019) %in% c("Study_ID", "study_name", "species", "trait", "treatment", "control", "sd_treatment", "sd_control", "n_treatment", "n_control", "elevation", "elevation_log"))]
+### make a table
+t1 <- dat_Midolo_2019 %>% DT::datatable()
+t1
+```
+
+**Table S1** shows extracted/coded variables from published papers. Broadly, these variables can be divided into three types. 
+
+You can find more details about the meaning of the variables shown in **Tables S1** in the paper of @midolo2019global if you have interests. Without losing generality, we categorize the above variables into three types (see below). We will explain what the role of each variable is when we illustrate the corresponding the meta-analytic techniques we proposed in the main text.
+
+- Bibliometric information
+
+variables are used used as the indices of a paper in online academic databases (e.g., SCOPUS), such as reference name (`study_name`).
+
+- Descriptive statistics
+
+Variables are used to compute effect sizes to quantify seven leaf traits, such as mean (`treatment` and `control`), standard deviation (`sd_treatment` and `sd_control`) and sample size (`n_treatment` and `n_control`).
+
+- Study-related characteristics
+
+Variables that can cause random variability between the effect sizes, such as study identity (`Study_ID`), or systematic variability between the effect sizes, such as treatment characteristics (`evaluation`; which is a independent/predictor/moderator variable).
+
+After having an (primary) understanding of the extracted/coded variables, we can use `escalc()` to compute effect size (using lnRR as an example) with:
+
+<pre class="code rsplus">
+lnRR <- escalc(measure = "ROM",  # "ROM" means ratio of means; lnRR is specified to be calculated (alternative effect sizes: "SMD" – SMD, "CVR" – lnCVR, "VR" – lnVR; see below);
+               m1i = treatment, # mean value of of group 1 (e.g., environmental stressor); in our worked example, m1i denotes the mean value of a trait measured at the higher elevation level;
+               m2i = control, # mean value of group 2 (e.g., control); in our worked example, m2i denotes the mean of the same trait measured at the lower elevation level;
+               sd1i = sd_treatment, # standard deviation of mean of group 1 (e.g., environmental stressor)
+               sd2i = sd_control, # standard deviation of group 2 (e.g., control) 
+               n1i = n_treatment, # sample size of group 1 (e.g., environmental stressor) 
+               n2i = n_control, # sample size of group 2 (e.g., control) 
+               data = dat_Midolo_2019, # dataset containing the above information (here is the dataset of our working example)
+               )
+</pre>
+
+
+```{r effect size calculation, results='hide'}
+# computation lnRR
+lnRR <- escalc(measure = "ROM",  # "ROM" means ratio of means; lnRR is specified to be calculated;
+               m1i = treatment, # mean of group 1 (e.g., environmental stressor) 
+               m2i = control, # mean of group 2 (e.g., control)
+               sd1i = sd_treatment, # standard deviation of mean of group 1 (e.g., environmental stressor)
+               sd2i = sd_control, # standard deviation of group 2 (e.g., control) 
+               n1i = n_treatment, # sample size of group 1 (e.g., environmental stressor) 
+               n2i = n_control, # sample size of group 2 (e.g., control) 
+               data = dat_Midolo_2019, # dataset containing the above information (here is the dataset of our working example)
+               digits = 3,
+               append = FALSE)
+
+### bind the four sets of effect sizes into one dataframe
+metrics_set <- data.frame(lnRR = lnRR$yi, lnRRV = lnRR$vi)
+dat2_Midolo_2019 <- cbind(dat_Midolo_2019, metrics_set) # bind_cols()
+```
+
+Let's have a look at the calculated effect sizes as lnRRs and their sampling variances (Table S2).
+
+__Table S2__  
+The point estimate of effect size (**lnRR**) and their sampling variance (**lnRRV**) for each included study and comparison (higher elevation vs. lower elevation).  
+
+```{r Table S2}
+### show the calculated effect sizes and their sampling variances
+t2 <- dat2_Midolo_2019 %>% select(c("study_name","lnRR","lnRRV", "elevation")) %>% DT::datatable()
+t2
+```
+
+Note that the argument `measure` is used to specify the types of effect size we choose to quantify the environmental/biological effects. For example, specifying `measure = "SMD"` will compute the point estimate of SMD and its sampling variance. Below, we list the syntax for the most commonly used effect sizes and underappreciated effect sizes. For other types, you can look at the help information of `escalc ` by typing `?escalc` in the console of `R`.
+
+- `measure = "ROM"`: lnRR - when you want to quantify the mean difference between two groups
+
+- `measure = "SMD"`: SMD - when you want to quantify the mean difference between two groups
+
+- `measure = "ZCOR"`: *Zr* - when you want to quantify the relationship between two variables
+
+- `measure = "VR"`: lnVR - when you want to quantify the difference in variance between two groups
+
+- `measure = "CVR"`: lnCVR - when you want to quantify the difference in variance between two groups when account for the mean-variance relationship
+
+Note that lnVR and lnCVR are variation/dispersion-based effect size, which are underappreciated and likely to be unfamiliar to environmental scientists. However, meta-analysing these effect sizes can scale out our research questions which are often answered by meta-analysing mean/average-based effect sizes (e.g., lnRR, SMD). We will use an real-word example to show this point in **Section X**.
+
+
+# Choosing a meta-analytic model {.tabset} 
+
+## Two traditional models
+
+After having effect sizes and sampling variance, we can easily answer the **first aim** of an classic environmental meta-analysis - **estimating overall effect**. Traditionally, we use two conventional meta-analytic models, which can be easily fitted via function `rma()` in `metafor`.
+
+- Fixed-effect model (‘common-effect’ or ‘equal-effect’ model; Equation 1)
+
+$$
+z_{j} = \beta_{0} + m_{j}, (1)\\ m_{j} \sim N(0,\nu_{j})
+$$
+All notations can be found in the main text. The corresponding `R` code is:
+
+<pre class="code rsplus">
+mod_FE_lnRR <- rma(yi = lnRR, # calculated/estimated effect size are supplied; the outputs of escalc() function; 
+                   vi = lnRRV, # calculated/estimated sampling variance of lnRR are supplied; 
+                   method = "EE", # fixed-effect model is specified;
+                   data = dat2_Midolo_2019 # our dataset
+</pre>
+
+
+```{r FE model, results='hide'}
+### fit a fixed-effect model, it also can be called common-effect model or equal-effect model
+mod_FE_lnRR <- rma(yi = lnRR, # observed effect sizes / estimates of lnRR are supplied; the outputs of escalc() function; 
+                   vi = lnRRV, # the estimates of sampling variance of lnRR are supplied;; 
+                   method = "EE", # a fixed-effect model is set to fit;
+                   data = dat2_Midolo_2019 # the dataset
+                   )
+
+```
+
+Below is the outputs of our fitted fixed-effect model. **Model Results** show exactly the answers to the **first aim** of an environmental meta-analysis: estimating an overall mean, including the magnitude ($\beta_0$), uncertainty (standard error $SE[\beta_0]$), significance test, and confidence intervals (CIs). We will teach you how to properly interpret all the elements of the above printed model results when we come to the section of our proposed practical model (i.e., multilevel meta-analytic model).
+
+```{r FE results}
+# the model results of the fixed-effect model
+summary(mod_FE_lnRR)
+```
+
+- Random-effect model (Equation 2)
+
+$$
+z_{j} = \beta_{0} + \mu_{j} + m_{j}, (2)\\ \mu_{j} \sim N(0,\tau^2), m_{j} \sim N(0,\nu_{j})
+$$
+All notations can be found in the main text. Equation 2 can be fitted via `rma` with code: 
+
+```{r RE mode, results='hide'}
+### fit a fixed-effect model, it also can be called common-effect model or equal-effect model
+mod_RE_lnRR <- rma(yi = lnRR, # observed effect sizes / estimates of SMD; the outputs of escalc() function; 
+                   vi = lnRRV, # the estimates of sampling variance of SMD; 
+                   method = "REML", # setting restricted maximum likelihood estimator as the estimators for the amount of heterogeneity;
+                   data = dat2_Midolo_2019 # the dataset
+                   )
+```
+
+Below is the outputs of our fitted random-effect model. Again, we will elaborate on the interpretation in later section. 
+
+```{r RE results}
+# the model results of the fixed-effect model
+summary(mod_FE_lnRR)
+```
+
+
+It should be noted  by fitting the above two traditional models, we treat *k* = 1294 effect sizes in this dataset as independent - which we will later show is wrong. 
+
+- **Technical Recommendation**
+
+Setting `method = "REML"` fits a random-effect model using restricted maximum likelihood as a estimator to calculate the maximum likelihood of heterogeneity and corresponding model coefficients (e.g., $\beta_0$). We can also fit a random-effects model with the above syntax but setting the `method` argument to different estimators for calculating heterogeneity:
+`method = "ML"`: maximum likelihood estimator; `method="DL"` -  DerSimonian-Laird estimator; `method = "HE"`: Hedges estimator. **REML** is **recommended overall** because various simulation work demonstrates that it can produce (approximately) unbiased estimate of variance components (e.g., $\tau^2$). It is worth noting that some software do not use REML as the default estimator, such as **Review Manager**, **MetaWin**.
+
+
+## Multilevel meta-analytic model {.tabset}
+
+### Brief theory
+
+As we explained in the main text, environmental meta-analyses often confront one statistical issue: **non-independence** among data points (i.e., effect sizes) because one study (paper) often contributes multiple effect sizes. To handle the non-independent effect sizes, we propose the simplest and practical meta-analytic model for environmental sciences as:
+
+$$
+z_{i} = \beta_{0} + \mu_{j[i]} + e_{i} + m_{i}, (3)\\ \mu_{j[i]} \sim N(0,\tau^2), e_{i} \sim N(0,\sigma^2), m_{i} \sim N(0,\nu_{i})
+$$
+The dataset of @midolo2019global (Table S1) has *N* = `r length(unique(dat2_Midolo_2019$study_name))` primary studies with *k* = `r nrow(dat2_Midolo_2019)` effect sizes. *k*/*N* = `r round(nrow(dat2_Midolo_2019) / length(unique(dat2_Midolo_2019$study_name)),0)` indicates that this dataset has the issue of statistical dependence. This is because, on average, `r round(nrow(dat2_Midolo_2019) / length(unique(dat2_Midolo_2019$study_name)),0)` effect sizes were clustered within the same primary study, leading to them be more similar and correlate with other other. See **Figure 2** in the main text for more situations of statistical non-independence in environmental meta-analysis. The Equation 3 uses an additional random-effect term, within-study effect $e_{i}$ (effect-size level), to account for non-independence due to 'multiple effect sizes clustering within the same study' (i.e., clustering). 
+
+### Model fitting
+
+From the perspective implementation, we need to handle this non-Independence from the very beginning. When preparing our data file (e.g., Excel or .CSV), we need to structure our data file in a way that permits the incorporation of non-independence among effect sizes. To do so, we need to code a unique identifier for each primary study (`Study_ID`: *S1*, *S2*, *S3*, ...) and a unique identifier for each effect size (`ES_ID`: *ES1*, *ES2*, *ES3*, ...).
+
+With these coded variables in hand, we can use function `rma.mv` rather than `rma` to fit the multilevel meta-analytic model (Equation 3). Supplying `Study_ID` and `ES_ID` to the argument `random` can construct the two random-effect terms in Equation 3: study level effect $\mu_{j[i]}$ (between-study effect) and effect size level effect $e_{i}$ (within-study effect). 
+
+We can use a formula to define the random-effect structure specified in `random`: starts with `~ 1`, followed by a `|`, then a identifier denoting random effects (e.g., `Study_ID` or `ES_ID`). The complete syntax to fit Equation 3 is:
+
+<pre class="code rsplus">
+mod_ML_lnRR <- rma.mv(yi = lnRR, 
+                      V = lnRRV, 
+                      random = list(~1 | Study_ID, # allows true effect sizes to vary among different primary studies - account for the between-study effect and quantify between-study heterogeneity;
+                                    ~1 | ES_ID), # allows true effect sizes to vary within primary studies - account for the with-study effect and quantify with-study heterogeneity;
+                      method = "REML", # REML is assigned as the estimator for variance components as suggested;
+                      data = dat2_Midolo_2019 # our dataset
+                      )
+</pre>
+
+```{r fit ML model, results='hide'}
+# add a unique ID for each observation; otherwise you would be assuming homogeneity of true effect sizes within studies, which is a strong assumption
+dat2_Midolo_2019$ES_ID <- rep("ES", nrow(dat2_Midolo_2019))
+dat2_Midolo_2019$ES_ID <- paste(dat2_Midolo_2019$ES_ID, c(1:nrow(dat2_Midolo_2019)), sep = "")
+
+# fit Equation 3
+mod_ML_lnRR <- rma.mv(yi = lnRR, 
+                      V = lnRRV, 
+                      random = list(~1 | Study_ID, 
+                                    ~1 | ES_ID), 
+                      # test = "t",
+                      method = "REML", 
+                      data = dat2_Midolo_2019,
+                      sparse = TRUE)
+```
+
+
+### Results interpretation
+
+**The classic results of the fitted multilevel model (Equation 3) look:**
+```{r ML results}
+summary(mod_ML_lnRR)
+```
+
+Let’s go through the above results one by one.  
+
+- **Multivariate Meta-Analysis Model**  
+
+`k` = the number of effect sizes (*k*) fed to the multilevel model.
+
+`method: REML` = the REML method was specified as estimation procedure for model fitting to obtain model estimates  (e.g., variance components, model coefficients). 
+
+All other elements denote fit statistics and information-criteria based statistics, which can be used for model selection (see **Section XX**), including:
+
+`logLik` = restricted log-likelihood of the fitted model,
+
+`Deviance` = goodness-of-fit statistic of the fitted model,
+
+`AIC` = Akaike information criterion score of the fitted model,
+
+`BIC` = Bayesian information criterion and `AICc` (AIC corrected for small sample sizes). 
+
+- **Variance Components**  
+
+`sigma^2.1` =  between-study variance $\tau^2$, which is conceptually equivalent to between-study heterogeneity variance $\tau^2$ in a random-effect model formulated as Equation 2 (but see below for a comparison).
+
+`sigma^2.2` = within-study variance $\sigma^2$. 
+
+`estim` =  the estimated amount of corresponding variance components.
+
+`sqrt` = standard deviation of variance components.
+
+`nlvls` = how many levels each random effect has.
+
+`factor` = the name of the variables we supply to argument `random` to specify corresponding random effects.
+
+
+- **Test for Heterogeneity**  
+
+Results of hypothesis test of heterogeneity based on Cochran’s Q-test, which is used to test the null hypothesis that all experimental studies have the same/equal effect.
+
+`p-val` < 0.05 = effect sizes derived from the environmental studies are heterogeneous. To put it in other way, the dataset exist substantial heterogeneity.  
+
+- **Model Results**  
+
+Results of model coefficients and corresponding model inference.
+
+`estimate` = the estimate of pooled/average/overall effect; also as known as grand mean or meta-analytic effect size ($\beta_{0}$ in Equation 3.
+
+`se` = the standard error of the estimate; here, it is (SE[$\beta_{0}$].
+
+`zval` = the value of test statistic (in our case: z-value; see **Technical recommendation** for our recommended practices).
+
+`ci.lb` = lower boundary of (95% by default) confidence intervals (CIs).
+
+`ci.Ub` = upper boundary of CIs.  
+
+### Technical recommendation
+
+Argument `test` in `rma.mv` and `rma` is used to specified methods based on which the model inference is conducted; the methods to calculate test statistics and perform significance test of model coefficient like $\beta_0$ (confidence intervals and p-value). **By default**, `rma.mv` and `rma` set `test = "z"`, which meaning that the corresponding model inference is based on a standard normal distribution. However, when meta-analysing small number of studies, setting `test = "z"` will get nominally high Type I error rate, leading to high false positive results. To achieve a nominal performance of tests, it is highly recommended to set `test = "t"`, which uses a t-distribution with *k*−*p* degrees of freedom to test model coefficients (e.g., $\beta_0$) and CIs (*p* = the number of model coefficients). There are also other improved model inferences, for example, adjusting the degrees of freedom of the t-distribution, which can be implemented by setting `dfs = "contain"`.
+
+Therefore, the a multilevel model with improved model inference methods can be fitted with:
+
+<pre class="code rsplus">
+mod_ML_lnRR <- rma.mv(yi = lnRR, 
+                      V = lnRRV, 
+                      random = list(~1 | Study_ID, # allows true effect sizes to vary among different primary studies - account for the between-study effect and quantify between-study heterogeneity;
+                                    ~1 | ES_ID), # allows true effect sizes to vary within primary studies - account for the with-study effect and quantify with-study heterogeneity;
+                      method = "REML", # REML is assigned as the estimator for variance components as suggested;
+                      test = "t", # t-distribution is specified for the tests of model coefficients and CIs;
+                      dfs = "contain", # the methods to adjust the (denominator) degrees of freedom;
+                      data = dat2_Midolo_2019 # our dataset
+                      )
+</pre>
+
+**Corresponding results look:**
+```{r improved inference, results='hide'}
+### fit multilevel model with an improved model inference methods
+mod_ML_lnRR2 <- rma.mv(yi = lnRR, 
+                      V = lnRRV, 
+                      random = list(~1 | Study_ID, # allows true effect sizes to vary among different primary studies - account for the between-study effect and quantify between-study heterogeneity;
+                                    ~1 | ES_ID), # allows true effect sizes to vary within primary studies - account for the with-study effect and quantify with-study heterogeneity;
+                      method = "REML", # REML is assigned as the estimator for variance components as suggested;
+                      test = "t", # t-distribution is specified for the tests of model coefficients and CIs;
+                      dfs = "contain", # the methods to adjust the (denominator) degrees of freedom;
+                      data = dat2_Midolo_2019, # our dataset
+                      sparse = TRUE
+                      )
+summary(mod_ML_lnRR2)
+```
+
+As you can see, under **Model Results**, `zval` turns to `tval`. Note that the value has not changed because this worked example has a so large number of primary studies (*N* = `r length(unique(dat2_Midolo_2019$study_name))`) that a z-distribution (standard normal distribution) is approximately same as a t-distribution. When the number of primary studies (*N*) is low, setting `test = "t"` and `dfs = "contain"` is highly recommended.
+
+
+
+## Statistical non-independence {.tabset}
+
+### Undesirable consequences
+
+As we explained in our main text, failing to deal with statistical non-independence (details see **Figure 2**) will inflate Type 1 error, leading to underestimated standard error of $\beta_0$ and spurious p-value of $\beta_0$ (our first example exactly shows this point; see below). Note that the estimate of the magnitude of $\beta_0$ is not necessary to be biased but in some concussions it may be biased and even in wrong direction (our second worked example exactly shows this point; see **Section XX**). 
+
+Below, by comparing the results of traditional models and our proposed model (i.e., multilevel model), we show how ignoring statistical non-independence (which is a natural consequence if using traditional models) distort the the meta-analytic evidence. Let's look at Table S3 showing results of traditional models and our proposed model.
+
+__Table S3__   
+Comparison of the random-effects and multilevel meta-analytic models.   
+
+```{r TableS3}
+t3 <- data.frame("Overall effect (pooled lnRR)" = c(round(mod_RE_lnRR$b[1],2), round(mod_ML_lnRR$b[1],2)),
+             "Standard error" = c(round(mod_RE_lnRR$se,2), round(mod_ML_lnRR$se,2)),
+             "p-value" = c(round(mod_RE_lnRR$pval,4), round(mod_ML_lnRR$pval,3)),
+             "Lower CI" = c(round(mod_RE_lnRR$ci.lb,2), round(mod_ML_lnRR$ci.lb,2)),
+             "Upper CI" = c(round(mod_RE_lnRR$ci.ub,2), round(mod_ML_lnRR$ci.ub,2)),
+             "Between-study variance" = c(round(mod_RE_lnRR$tau2,3), round(mod_ML_lnRR$sigma2[1],3)),
+             "Within-study variance" = c(0, round(mod_ML_lnRR$sigma2[2],3)),
+             "Between-study I2" = c(round(mod_RE_lnRR$I2,2),round(i2_ml(mod_ML_lnRR)[[2]],2)),
+             "Within-study I2" = c(0,round(i2_ml(mod_ML_lnRR)[[3]],2)))
+
+colnames(t3) <- c("Overall effect (pooled lnRR)", "Standard error", "p-value", "Lower CI", "Upper CI", "Between-study variance", "Within-study variance", "Between-study heterogeneity I2 (%)", "Within-study heterogeneity I2 (%)")
+
+t3_2 <- t(t3) %>% as.data.frame()
+colnames(t3_2) <- c("Random-effect model", "Multi-level model")
+
+t3_2 %>% DT::datatable()
+# t3_2 %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"), rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"), tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+```
+
+- Distorted results by ignoring statistical non-independence
+
+From Table S3, we can see that conclusions based on our proposed multilevel model conflict with those reached by random-effect model; *p-value* and 95% CIs demonstrate that multilevel model shows statistically non-significant overall effect ($\beta_{0}$), while random-effects model shows statistically significant overall effect ($\beta_{0}$)。  
+
+This indicates that using the traditional model to fit non-independent effect sizes underestimates the standard error of model coefficient (SE[$\beta_{0}$]) and distorts corresponding statistical inference (e.g., inflated p-value): SE[$\beta_{0}$] = `r round(mod_ML_lnRR$se,3)` in the multilevel model vs. SE[$\beta_{0}$] = `r round(mod_RE_lnRR$se,3)` in the random-effect model; p-value = `r round(mod_ML_lnRR$pval,4)` in the multilevel model vs. p-value = `r round(mod_RE_lnRR$pval,4)` in the random-effect model. The width of 95% CIs in the multilevel model is wider than those in the random-effect model: = [`r round(mod_ML_lnRR$ci.lb,3)` to `r round(mod_ML_lnRR$ci.ub,3)`] in the multilevel model vs. [`r round(mod_RE_lnRR$ci.lb,3)` to `r round(mod_ML_lnRR$ci.ub,3)`] in the random-effect model. Therefore, if using random-effect model fitting this data (@midolo2019global), we would have reached a conclusion: increasing elevation has, on average, no effects on intraspecific leaf trait, which is a wrong conclusion.  
+
+To put it another way, we see that the multilevel model proposed in out main text indeed accounts for statistical non-independence due to multiple effect sizes derived from the same study. We can quantify the degree of dependence using a index - intraclass correlation coefficient:
+
+$$
+ICC = \frac {\tau^2} {\tau^ + \sigma^2}
+$$
+The *ICC* index can reflect the intraclass correlation of the true effects within the same study. In the above fitted model, the *ICC* can be computed with:
+
+<pre class="code rsplus">
+mod_ML_lnRR$sigma2[1] / sum(mod_ML_lnRR$sigma2)
+</pre>  
+
+```{r ICC}
+mod_ML_lnRR$sigma2[1] / sum(mod_ML_lnRR$sigma2)
+```
+
+*ICC* = 0.2703 indicates that the underlying true effects (quantified as lnRR in this case) are weakly correlated within studies. However, the traditional models we ignores this dependence and regards all true effects within the same study identical and independent (which means *ICC* = 1). Therefore, the meta-analytic results have a dramatic change (turning from statistically significant into non-significant).
+
+- Neglected results by ignoring statistical non-independence
+
+From Table S3, we can also see that random-effect model leads to neglected results with respect to variance and heterogeneity between effect sizes. This is because random-effect model is likely to exaggerate between-study variance ($\tau^2$). The value of $\tau^2$ in random-effect model (`r round(mod_RE_lnRR$tau2,3)`) is three times that in multilevel model (`r round(mod_ML_lnRR$sigma2[1],3)`). Random-effect model wrongly distributes within-study variance ($\sigma^2$) to between-study variance ($\tau^2$). Therefore, fitting this dataset using random-effect model will result in a wrong conclusion that there is a high amount of between-study heterogeneity. However, this neglects that there is a large variance and heterogeneity within study ($\sigma^2$ = `r round(mod_ML_lnRR$sigma2[2],3)` and $I^2_{effect}$ = `r round(i2_ml(mod_ML_lnRR)[[3]],2)`; see the calculation of $I^2_{effect}$ in the section **Quantifying & explaining heterogeneity**). 
+
+### Variance-covariance matrix
+
+As elaboration in our main text, when multiple effect sizes are derived from a study (paper), there will be two broad types of non-independence (see **Figure 2** for detailed cases): 
+
+- non-independence among effect sizes
+
+- non-independence among sampling variances
+
+The multilevel model we proposed (as in Equation 3) only can takes care of cases of non-independence among effect sizes ($z_{i}$). For non-independence among sampling variances ($\nu_{i}$), for example, shared control and measurements, we can construct a variance-covariance matrix to explicitly capture the non-zero covariance ($Cov[\nu_{1[1]},\nu_{1[2]}]=\rho_{12}\sqrt{\nu_{1[1]}\nu_{1[2]}}$) due to correlation between sampling errors ($\nu_{i}$) within the same primary studies:
+
+$$
+\boldsymbol{M} = 
+\begin{bmatrix}
+\nu_{1[1]} & \rho_{12}\sqrt{\nu_{1[1]}\nu_{1[2]}} & 0 \\
+\rho_{21}\sqrt{\nu_{1[2]}\nu_{1[1]}} & \nu_{1[2]} & 0 \\
+0 & 0 & \nu_{2[3]}
+\end{bmatrix}, (4)
+$$
+Constructing a **VCV** matrix is almost impossible because the within-study sampling correlation (e.g., $\rho_{12}$) are rarely reported in the primary environmental studies, although exact covariances can be computed for some comparative effect statistics (see **Table 2**). But we can impute a **VCV** matrix by assuming a constant $\rho$ across different environmental studies ($\rho_{ik}=\cdots=\rho_{jh}\equiv\rho$). With this simple assumption, we can impute **VCV** matrix via function `impute_covariance_matrix()` in `clubSandwich`:
+
+<pre class="code rsplus">
+VCV <- impute_covariance_matrix(vi = dat2_Midolo_2019$lnRRV, # sampling variances that are correlated with each within the same study;
+                                cluster = dat2_Midolo_2019$Study_ID, # study identity - clustering variable;
+                                r = 0.5 # assuming that the effect sizes within the same study are correlated with rho = 0.5.
+                                )
+</pre>
+
+
+```{r impute_covariance_matrix, results='hide'}
+# imputing a VCV assuming that the samping variance within studies are correlated with rho = 0.5
+VCV <- impute_covariance_matrix(vi = dat2_Midolo_2019$lnRRV, 
+                                cluster = dat2_Midolo_2019$Study_ID, 
+                                r = 0.5)
+```
+
+This also can be done via function `vcalc()` in `metafor`:
+
+<pre class="code rsplus">
+VCV <- vcalc(vi = lnRRV, # sampling variances that are correlated with each within the same study;
+             cluster = Study_ID,  # study identity - clustering variable;
+             obs = ES_ID, # different effect sizes corresponding to the same response/dependent variable
+             data = dat2_Midolo_2019, 
+             rho = 0.5 # assuming that the effect sizes within the same study are correlated with rho = 0.5
+             )
+</pre>
+
+```{r vcalc}
+# assume that the sampling variances within studies are correlated with rho = 0.5
+VCV <- vcalc(vi = lnRRV, 
+             cluster = Study_ID, 
+             obs = ES_ID, 
+             data = dat2_Midolo_2019, 
+             rho = 0.5)
+```
+
+
+Setting `rho = 0.5` means we assume that sampling errors within the same study are correlated with $\rho$ = 0.5 (see below for **Note**). Let's see what the imputed **VCV** matrix looks like. Let's use the Bansal and Germino (2010) as example:
+
+```{r VCV example}
+# examine the VCV matrix for studies Bateson et al., 2007 and Walker et al., 2014
+VCV[dat2_Midolo_2019$study_name %in% c("Bansal and Germino (2010)"), dat2_Midolo_2019$study_name %in% c("Bansal and Germino (2010)")] %>% round(3)
+```
+
+As shown the above, **VCV** matrix is a symmetric matrix, with the sampling variance ($\nu_{[i]}$) being the diagonal, and the covariance ($Cov[\nu_{i},\nu_{k}]$) being the off-diagonal. 
+
+Let's account for both non-independence among effect sizes and sampling variances:
+
+<pre class="code rsplus">
+mod_ML_lnRR_var <- rma.mv(yi = lnRR, 
+                          V = VCV, # use covariance for comparison with that fitted by sampling covariance
+                          random = list(~1 | Study_ID, 
+                                        ~1 | ES_ID), 
+                          method = "REML", 
+                          test = "t", 
+                          data = dat2_Midolo_2019
+                          )
+</pre>
+
+Then we have a look at whether the model coefficients and corresponding significance tests change:
+
+```{r ML with VCV}
+### run multilevel model without accounting for sampling covariance (correlated errors)
+mod_ML_lnRR_var <- rma.mv(yi = lnRR, 
+                          V = lnRRV, # use sampling variance for comparison with that fitted by covariance
+                          random = list(~1 | Study_ID, 
+                                        ~1 | ES_ID), 
+                          method = "REML", 
+                          test = "t", 
+                          data = dat2_Midolo_2019,
+                          sparse = TRUE
+                          )
+
+
+# re-run the multilevel model with accounting for the sampling variance using the constructed VCV matrix with rho = 0.5 - medium correlation
+mod_ML_lnRR_VCV <- rma.mv(yi = lnRR, 
+                          V = VCV, # use covariance for comparison with that fitted by sampling covariance
+                          random = list(~1 | Study_ID, 
+                                        ~1 | ES_ID), 
+                          method = "REML", 
+                          test = "t", 
+                          data = dat2_Midolo_2019,
+                          sparse = TRUE
+                          )
+
+# show the summary of the model account for correlated errors
+summary(mod_ML_lnRR_VCV)
+```
+
+We see that the overall effect ($\beta_0$ = `r round(mod_ML_lnRR_VCV$beta,2)`, 95% CIs = [`r round(mod_ML_lnRR_VCV$ci.lb,2)` to `r round(mod_ML_lnRR_VCV$ci.ub,2)`]) and corresponding significance tests (*p-value* = `r round(mod_ML_lnRR_VCV$pval,4)`) do not change after accounting for non-independence among sampling errors. But this does not mean we do not need to account for it.
+
+- **Technical Recommendation**
+
+Certain values of $\rho$ have been recommended by several published papers, for example, setting `rho = 0.5` or a conservative `rho = 0.8`. Overall, we agree these 'values' because they make the construction of **VCV** feasible. But we should check the robustness against different values of $\rho$ (see **Conducting sensitivity analysis & critical appraisal** for a pipeline conducting such a sensitivity).
+
+
+### Robust variance estimation
+
+Robust variance estimation (RVE) can approximate average covariances between sampling errors (and effect sizes) from the data, and then, incorporating such covariances in estimating standard errors (a so-called robust standard error) and making model inference. As we explained in the main text, although RVE can deal with non-independence between both sampling errors and effect sizes, we recommend use RVE in the framework of multilevel model:
+
+- using REV to account for non-independence and make robust model inference
+
+- using multilevel model to partition variance components, which avoids wrong conclusions and provide more insights into heterogeneity
+
+It is very straightforward to implement the combination of RVE and multilevel model - supply the fitted multilevel model (`rma.mv` object) to function `coef_test()` function in `clubSandwich` package:
+
+<pre class="code rsplus">
+mod_ML_RVE <- coef_test(mod_ML_lnRR_var, # fitted multilevel model for which to make robust model inference (an object of class "rma.mv" can be directly supplied to coef_test());
+                       vcov = "CR2", # ‘bias-reduced linearization’ is specified to approximate variance-covariance;
+                       cluster = dat2_Midolo_2019$Study_ID # study identity -clusting variable
+                       )
+</pre>
+
+RVE computes the robust error and use it for the subsequent computation of significance tests (`t-stat`, `p-val`) and confidence intervals of the model coefficients ($\beta_{0}$):
+
+```{r coef_test}
+# make robust model inferences using REV
+mod_ML_RVE <- coef_test(mod_ML_lnRR_var, # fitted multilevel model for which to make robust model inference (an object of class "rma.mv" can be directly supplied to coef_test());
+                       vcov = "CR2", # ‘bias-reduced linearization’ is specified to approximate variance-covariance;
+                       cluster = dat2_Midolo_2019$Study_ID
+                     )
+print(mod_ML_RVE)
+```
+
+Alternatively, we can use function `robust()` in `metafor` to implement RVE:
+
+<pre class="code rsplus">
+robust(mod_ML_lnRR_var, 
+       cluster = dat2_Midolo_2019$Study_ID, 
+       clubSandwich = TRUE)
+</pre>
+
+```{r robust}
+### use REV methods that are same as ClubSandwich package
+robust(mod_ML_lnRR_var, 
+       cluster = dat2_Midolo_2019$Study_ID, 
+       clubSandwich = TRUE)
+```
+
+We can see the results of RVE from function `coef_test()` are same as those from function `robust()`. 
+
+- **Technical Recommendation**
+
+We do not have definite recommendation on which methods, **VCV** matrix or RVE, to account for non-independence among sampling errors. Because no such simulation work in the context of multilevel meta-analysis has been done so far.
+
+
+# Quantifying & explaining heterogeneity {.tabset} 
+
+## Measuring heterogeneity
+
+The **second aim** of a classic environmental meta-analysis is to **quantify consistencies (heterogeneity) between studies**. In our main text, we recommend two ways of answering this question: absolute and relative heterogeneity measure. 
+
+- Absolute heterogeneity measure 
+
+We can use variance components such as $\tau^2$, **which can be directly extracted from the outputs of the fitted model** (see section **Results interpretation**); $\tau^2$ in a random-effect model (or $\tau^2$ + $\sigma^2$ in a multilevel model) directly reflects the genuine differences underlying the true effects corresponding to each random effect because the square root can be interpreted as the standard deviation of the true effect sizes. Also, an often neglected insight here is that the sum of the $\tau^2$ and $\sigma^2$ denotes the total amount of variation or heterogeneity in the true effects. In this worked example (@midolo2019global), the variation in the true effects ($\tau^2 + \sigma^2$) is 0.0706, which is quite large given the magnitude of the overall effect ($\beta_0$ = 0.0297). Put differently, true effects' heterogeneity is more than twice the magnitude of true effects (*CV* = 2.37)
+
+- Relative heterogeneity measure
+
+We can use $I^2$ statistic denoting relative variance due to differences between studies (or not due to sampling variance) in the case of random-effect model (Equation 2): 
+
+$$
+I^2=\frac{\tau^2} {\tau^2+\overline{\nu}}, (5)
+$$
+$$
+\overline{\nu}=\frac{(N_{effect}-1)\sum_{j=1}^{k} 1/\nu_{i}} {(\sum_{j=1}^{k} 1/\nu_{i})^2-\sum_{j=1}^{k} 1/\nu_{i}^2}, (6)
+$$
+
+In the case of multilevel model (Equation 3), the formulas can be written as:
+
+$$
+I^2_{total}=\frac{\tau^2+\sigma^2} {\tau^2+\sigma^2+\overline{\nu}}, (7)
+$$
+$I^2_{total}$ can be further decomposed into variance due to differences between studies ($I^2_{study}$) and variance due to differences within studies ($I^2_{effect}$): 
+
+$$
+I^2_{study}=\frac{\tau^2} {\tau^2+\sigma^2+\overline{\nu}}, (8)
+$$
+$$
+I^2_{effect}=\frac{\sigma^2} {\tau^2+\sigma^2+\overline{\nu}}, (9)
+$$
+Do not worry about the complexity of these equations because we have developed a function `i2_ml()` (`orchaRd` package) to compute Equations 7 to 9: 
+
+<pre class="code rsplus">
+i2_ml(mod_ML_lnRR_VCV)
+</pre>
+
+```{r I2 calculation}
+i2_ml(mod_ML_lnRR_VCV)
+```
+
+We see there is a small between-study heterogeneity (indicated by $I^2_{study}$), while a large within-study heterogeneity there is small between-study heterogeneity (indicated by $I^2_{effect}$). If we use a random-effect model to quantify heterogeneity, we will conclude that the high heterogeneity is due to between-study differences (i.e. $\tau^2$ and $I^2$; see **Table S3**). There is an argument `boot` that allows us to compute the CIs of $I^2$. Note that  calculating CIs of $I^2$ may take a long time to run because `i2_ml()` uses the bootstrap method.
+
+## Explaining variance with meta-regression {.tabset} 
+
+### Continuous moderator
+
+The **third aim** of a classic environmental meta-analysis is to **explain the heterogeneity**. To answer this question, we propose to use meta-regression models rather than subgroup analysis (e.g., dividing dataset according to one predictor variable [sex: male vs. female] and conducting separate meta-analyses for each subset). In the context of meta-analysis, we often name a predictor variable as a moderator, indicating that the magnitude of overall effect may be modified in a systematic way as a function of the moderator.
+
+Building upon the multilevel model (Equation 3), a meta-regression model can be constructed by adding one moderator variable (*AKA* predictor, independent/explanatory variable, or fixed factor):
+
+$$
+z_{i} = \beta_{0} + \beta_{1}x_{1j[i]} + \mu_{j[i]} + e_{i} + m_{i}, (10)\\ \mu_{j[i]} \sim N(0,\tau^2), e_{i} \sim N(0,\sigma^2), m_{i} \sim N(0,\nu_{i})
+$$
+
+Model coefficient $\beta_1$, denoting the slope of the moderator variable $x_{1}$, exactly examines how different study characteristics (coded as moderator variable $x_{1}$) mediate the magnitude of the overall effect.
+
+If we have more than one predictor-related hypotheses to test, we can put all the moderator variables into a meta-regression model in a whole, leading to multiple meta-regression (note that post-hoc hypotheses are generally not allowed, so you need to have a clear hypothesis about each predictor rather using the data-driven strategy):
+
+$$
+z_{i} = \beta_{0} + \sum \beta_{h}x_{h[i]} + \mu_{j[i]} + e_{i} + m_{i}, (11)\\ \mu_{j[i]} \sim N(0,\tau^2), e_{i} \sim N(0,\sigma^2), m_{i} \sim N(0,\nu_{i})
+$$
+
+We can fit a (multiple) regression model (as formulated as Equations 10 and 11) using function `rma.mv()`. The moderator, $x_{1}$, can be supplied to the argument `mods` using following formula: starting with a tilde `~`, followed by the name of the moderator (e.g., `mods = ~ x_1`).  
+
+In our worked example, @midolo2019global examined whether intraspecific leaf trait variation (measured as lnRR) in response to difference in elevation. To answer this question, we can construct a meta-regression model with difference in elevation as a moderator, which is coded as *elevation* column in the dataset (we log-transformed the value of elevation for each study to achieve normality assumption and labelled it as *elevation_log*). Setting `mods = ~ elevation_log` can fit such a meta-regression model with:
+
+<pre class="code rsplus">
+mod_MLMR_lnRR_elevation <- rma.mv(yi = lnRR, 
+                                  V = VCV, 
+                                  mods = ~ elevation_log, # adding elevation as a moderator variable (for continuous variable, it is a good practice to log-transform them to avoid data skewness);
+                                  random = list(~1 | Study_ID, 
+                                                ~1 | ES_ID), 
+                                  method = "REML", 
+                                  test = "t", 
+                                  data = dat2_Midolo_2019,
+                                  sparse = TRUE
+                                  )
+</pre> 
+
+The results of the above fitted meta-regression model are very similar with those of a multilevel meta-analytic model (as shown in **Results interpretation** in **Multilevel meta-analytic model**): 
+
+```{r MR with elevation}
+# incorporating elevation as an univariate moderator in meta-regression
+mod_MLMR_lnRR_elevation <- rma.mv(yi = lnRR, 
+                                  V = VCV, 
+                                  mods = ~ elevation_log,
+                                  random = list(~1 | Study_ID, 
+                                                ~1 | ES_ID), 
+                                  method = "REML", 
+                                  test = "t", 
+                                  data = dat2_Midolo_2019,
+                                  sparse = TRUE
+                                  )
+# print model results
+summary(mod_MLMR_lnRR_elevation)
+```
+
+Here, we only explain results that are different  from those from a multilevel meta-analytic model.
+
+- **Test for Residual Heterogeneity**  
+
+`QE` = test statistic used to test whether there is a large amount of "residual heterogeneity" among effect sizes. "Residual heterogeneity" means the amount of heterogeneity that is not explained by the included moderator (here is *elevation*). 
+
+`p-val` < 0.0001 = residual heterogeneity is still substantial (which is statistically significant larger than that of sampling variance).
+
+- **Test of Moderators (coefficient 2)**
+
+This section denotes omnibus test of all model coefficients or joint test of the null hypotheses:
+
+$$
+H_0:\beta_0=\beta_1=0
+$$
+`coefficient 2` = 2 coefficients are tested. In our case, intercept ($\beta_0$) and slope ($\beta_1$) of $x_1$ (i.e., *elevation*).
+
+`F(df1 = 1, df2 = 1292)` = the omnibus test is based on F-distribution with *m* (2) and *k* (1294) - *p* (2) (degrees of freedom with *m* representing the number of model coefficients tested and *p* the total number of model coefficients). We recommend to use a F-distribution rather than a chi-square distribution to improve the inference performance. To do so, set `test = "t"` rather than `test = "z"` (default of `rma.mv()`).
+
+`p-val = 0.0047` = *p-value* of this test, indicating that we can reject the null hypothesis that elevation has a null effect on leaf traits.
+
+- **Model Results**
+
+`intrcpt` = intercept $\beta_0$ in Equation 10. Note that this $\beta_0$ is distinct from $\beta_0$ (i.e., overall effect) in Equations 1 - 3. $\beta_0$ here means the average effect size (lnRR) with a elevation of 0. To put it in another way, setting $x_1$ = 0 can get intercept $\beta_0$.
+
+`elevation_log` = slope $\beta_1$ of $x_1$ (in this case *elevation*), denoting the estimated effect of the tested moderator $x_1$.
+
+With respect to the hypothesis tested in @midolo2019global, meta-regression confirms that elevation has a positive relationship with intraspcific leaf trait (quantified as lnRR).
+
+### Categorical moderator
+
+As explained in our main text, a categorical moderator also can be incorporated into a meta-regression by creating ‘dummy’ variables representing the various levels/subgroups (see main text for an example). `R` can create dummy variables for us automatically. Therefore, parameterizing a meta-regression with a categorical moderator is the same as meta-regression with a continuous moderator, with one exception: keep or remove intercept (see details below). 
+
+Let' say we aim to investigate whether the effect of elevation differs depending on leaf trait types. This variable is coded as *trait* in the dataset, including 7 levels: specific leaf area (*SLA*), leaf mass per area (*LMA*), leaf area (*LA*), nitrogen concentration per unit of area (*Narea*), nitrogen concentration per unit mass (*Nmass*), phosphorous concentration per unit mass (*Pmass*) and carbon isotope composition (*d13C*).
+
+Traditionally, we would divide the dataset into 7 subgroups and subsequently conduct 7 separate meta-analyses. A more powerful method is to fit a meta-regression with this categorical moderator (*trait*):
+
+<pre class="code rsplus">
+mod_MLMR_lnRR_trait <- rma.mv(yi = lnRR, 
+                              V = VCV, 
+                              mods = ~ trait -1, # setting '-1' is a useful strategy to remove intercept and then directly obtain the estimated effect (slope) for each subgroup or for a particular level within the categorical moderator.
+                              random = list(~1 | Study_ID, 
+                                                ~1 | ES_ID), 
+                              method = "REML", 
+                              test = "t", 
+                              data = dat2_Midolo_2019
+                              )
+</pre>
+
+The corresponding model output is then:
+```{r MR with trait}
+# incorporating trait types as an univariate moderator in meta-regression
+mod_MLMR_lnRR_trait <- rma.mv(yi = lnRR, 
+                              V = VCV, 
+                              mods = ~ I(trait) -1,
+                              random = list(~1 | Study_ID, 
+                                            ~1 | ES_ID), 
+                              method = "REML", 
+                              test = "t", 
+                              data = dat2_Midolo_2019,
+                              sparse = TRUE
+                              )
+# summary results
+summary(mod_MLMR_lnRR_trait)
+```
+
+Now, results under **Test of Moderators** are joint test of null hypotheses for slopes of 7 dummy variables ($\beta_1$ to $\beta_7$; no intercept $\beta_0$ because we remove it via `-1`):
+
+$$
+H_0:\beta_1=\beta_2=\beta_3=\beta_4=\beta_5=\beta_6=\beta_7=0
+$$
+
+`p-val < .0001` means the null hypotheses are rejected, suggesting that the trait types as a whole indeed affect the average effect of elevation (there is at least one subgroup showing statistically significant effect). 
+
+The results printed under `Model Results` directly give estimated effect for each of 7 traits because removing intercept from model (by `'-1'`) can make all dummy variables be incorporated in the model as moderators. We see that 5 traits (*LA*, *LMA*, *Narea*, *Nmass* and *Pmass*) have statistically significant effects, while the other 2 traits (*dC13* and *SLA*) do not.
+
+- **Technical Recommendation**
+
+Setting `mods = ~ x` (in this case, `mods = ~ trait`) will keep intercept ($\beta_0$) in the model: 
+
+<pre class="code rsplus">
+mod_MLMR_lnRR_trait2 <- rma.mv(yi = lnRR, 
+                              V = VCV, 
+                              mods = ~ I(trait),
+                              random = list(~1 | Study_ID, 
+                                            ~1 | ES_ID), 
+                              method = "REML", 
+                              test = "t", 
+                              data = dat2_Midolo_2019
+                              )
+</pre>
+
+```{r MR taking out beta0}
+# incorporating trait types as an univariate moderator in meta-regression
+mod_MLMR_lnRR_trait2 <- rma.mv(yi = lnRR, 
+                              V = VCV, 
+                              mods = ~ I(trait),
+                              random = list(~1 | Study_ID, 
+                                            ~1 | ES_ID), 
+                              method = "REML", 
+                              test = "t", 
+                              data = dat2_Midolo_2019,
+                              sparse = TRUE
+                              )
+# summary results
+summary(mod_MLMR_lnRR_trait2)
+```
+
+
+By default, `R` alphabetizes the dummy variables. In our case, *dC13* is set as reference level and associated dummy variable is taken out from the meta-regression model. Why *dC13* rather than other dummy variables? Because the letter "b" (*dC13*) comes before other letters, for example, "L" (*LA*) and "S" (SLA). Therefore, model intercept $\beta_{0}$ (`intrcpt`) represents the estimated effect for subgroup of *dC13* ($\beta_0$ = -0.0136, 95CI% = [-0.0613 to 0.0341], *p-value* =  0.5758). The remaining model coefficients denote contrasts between the reference level (`intrcpt` or *dC13*) and the other 6 levels/groups. Therefore, removing intercept (not adding `-1`) can allow us to test whether different levels/subgroups differ in terms of average effect. If we aim to compare estimated effect of one level to other levels, we can set this level as reference by function `relevel()` or `factor()` prior to model fitting. 
+Alternatively, we can use function `anova()` to obtain the contrasts. If you use a subgroup analysis rather than meta-regression to explain heterogeneity, you have to do it by hand: using Wald-type test to calculate the test statistics and then performing significance tests. 
+
+
+## Goodness-of-fit
+
+The goodness-of-fit index $R^2$ can be used to quantify the percentage of variance explained by a moderator. This index has implications of how importance of the examined moderator. It also can be used for model section to select a model with the 'best' set of moderators. A general and implement-ready from of $R^2$ is marginal version: 
+
+
+@nakagawa2013general propose to use a general form of $R^2$ - marginal $R^2$, which can be calculated as:  
+
+$$
+R^2_{marginal}=\frac{f^2} {f^2+\tau^2+\sigma^2}, (12) \\ f^2 = Var(\sum \beta_{h}x_{h[i]}), (13)
+$$
+We wrote a function `r2_ml()` (in `orchaRd` package), which makes the calculation of $R^2_{marginal}$ be done with one line:
+
+<pre class="code rsplus">
+r2_ml(mod_MLMR_lnRR_elevation)
+</pre>   
+
+The result given under `R2_marginal` shows that elevation can explain 0.98% of the variation between effect sizes.  
+
+```{r R2 calculation}
+r2_ml(mod_MLMR_lnRR_elevation)
+```
+
+
+# Notes on visualisation and interpretation {.tabset} 
+
+## Classic forest plots
+
+For environmental meta-analyses, a forest is often used to visualize the effect (quantified as effect size) and its 95% CIs for each study and overall effects based on model (e.g., $beta_0$ and its 95% CIs). A classic forest (**Figure S1**) can be made by function `forest()` in `metafor` package:
+
+<pre class="code rsplus">
+forest(mod_ML_lnRR_VCV, # rma.mv object
+       xlab = "Effect size lnRR")
+</pre>
+
+On the bottom of the forest plot (**Figure S1**) made by `forest()`, there is a four-sided polygon (well known as 'diamond') representing the overall effect based on the fitted model (in our case, *mod_ML_lnRR_VCV* -  `rma.mv` object containing outputs of a multilevel model). The center of the diamond denotes the point estimate and the left/right edges correspond to lower and upper CI boundaries. However, we can not clearly see these symbols because the number of studies is very large for this dataset. Although we can use some arguments to make this forest plot clear, it is hard to do so and takes a long time to make it a publish-ready figure. Recently, some new figures deriving from forests can help resolve this issues, such as ‘caterpillar’ plot and 'orchard' plot. See **Underappreciated plots**.
+
+
+```{r Fig. S1}
+# make a classic forest plot
+forest(mod_ML_lnRR_VCV,
+       xlab = "Effect size lnRR")
+```
+
+__Figure S1__  
+An example of forest plot showing the effect sizes from each study (and their 95% CIs) and the overall effect based on model.
+
+## Underappreciated plots
+
+Function `orchard_plot()` in `orchaRd` package can make a forest-like plot (termed as 'orchard' plot) that can accommodate large number of studies. 
+
+A basic orchard plot can be made with:
+
+<pre class="code rsplus">
+orchard_plot(mod_multilevel_SMD, 
+             mod = "1", 
+             xlab = "Standardised mean difference (SMD)", 
+             group = "Study_ID",  k = TRUE, g = TRUE,
+             data = dat2_Midolo_2019) + 
+             scale_x_discrete(labels = c("Overall effect (meta-analytic lnRR)"))
+</pre>
+
+```{r Fig. S2}
+# make an orchard plot
+orchard_plot(mod_ML_lnRR_VCV, 
+             mod = "1", 
+             xlab = "Effect size lnRR", 
+             group = "Study_ID",  k = TRUE, g = TRUE, trunk.size = 1.5, 
+             data = dat2_Midolo_2019) + 
+             scale_x_discrete(labels = c("Overall effect")) 
+```
+
+__Figure S2__  
+Orchard plot (forest-like plot) showing the effect sizes from each study (and their 95% CIs), the overall effect and its 95% CIs and 95% prediction intervals.  
+
+We see that an orchard plot looks more informative than a classic forest plot. For example, it can show the distribution of the effect size from each study, the number of effect sizes (*k*) and the number of studies (the number in the bracket). A orchard plot not only can visualize the meta-analytic results, but also let us realize something we are not bale to see from statistical results, such as influential data points and outliers that could threaten the robustness of our results. Further, an orchard plot not only show 95% CIs (thick whiskers in **Figure S2**)  but also 95% prediction intervals (PIs; thin whiskers), through which we can visually check the heterogeneity among effect sizes. Because CIs only include the standard error of the overall effect $\beta_0$ ($SE[\beta_0]$), which PIs include variance of random effects: 
+
+$$
+\text{95%CI} = \beta_{0} \pm t_{df[\alpha=0.05]} SE[\beta_{0}^2], (14)
+$$
+
+$$
+\text{95%PI} = \beta_{0} \pm t_{df[\alpha=0.05]} \sqrt{\tau^2+\sigma^2+ SE[\beta_{0}^2]}, (15)
+$$
+If you want to know the detailed value of PIs, you can use `predict`:
+```{r PI calculation}
+### calculate the 95% prediction intervals
+predict(mod_ML_lnRR_VCV)
+```
+
+- **Visualize meta-regression with a categorical moderator**
+
+A fabulous function of `orchard_plot()` is that it also can nicely show  results based on meta-regression model (**Figure S3**). The results based on meta-regression with *trait* as a moderator can be visualized with:
+
+<pre class="code rsplus">
+orchard_plot(mod_MLMR_lnRR_trait, 
+             mod = "trait", 
+             xlab = "Effect size lnRR", 
+             group = "Study_ID",  k = TRUE, g = TRUE, trunk.size = 1.5, 
+             data = dat2_Midolo_2019) + 
+             scale_x_discrete(labels = c("SLA","Pmass","Nmass","Narea","LMA","LA","dC13"))
+</pre>
+
+```{r Fig. S3}
+# make an orchard plot
+orchard_plot(mod_MLMR_lnRR_trait, 
+             mod = "trait", 
+             xlab = "Effect size lnRR", 
+             group = "Study_ID",  k = TRUE, g = TRUE, trunk.size = 1.5, 
+             data = dat2_Midolo_2019) + 
+             scale_x_discrete(labels = c("SLA","Pmass","Nmass","Narea","LMA","LA","dC13")) 
+```
+
+__Figure S3__  
+Orchard plot (forest-like plot) showing the effect sizes from each study and the overall effect for each subgroup/levels of a given categorical moderator.
+
+- **Visualize meta-regression with a continuous moderator**
+
+For a meta-regression with a continuous moderator, we can use `bubble_plot()` to visualize the results. Let's visualize the meta-regression with *elevation* as the continuous moderator:
+
+<pre class="code rsplus">
+bubble_plot(mod_MLMR_lnRR_elevation, 
+            mod = "elevation_log", 
+            xlab = "Elevation (log-transformed)", ylab = "Effect size lnRR",
+            group = "Study_ID",k = TRUE, g = TRUE,
+            data = dat2_Midolo_2019, legend.pos = "top.left") +
+            theme(axis.text.x = element_text(size = 12, colour = "black"),
+                  axis.text.y = element_text(size = 12, colour = "black"),
+                  axis.title.x = element_text(size = 12, colour = "black"),
+                  plot.title = element_text(size = 12, colour = "black"))
+</pre>
+
+```{r Fig. S4}
+bubble_plot(mod_MLMR_lnRR_elevation, 
+            mod = "elevation_log", 
+            xlab = "Elevation (log-transformed)", ylab = "Effect size lnRR",
+            group = "Study_ID", k = TRUE, g = TRUE,
+            data = dat2_Midolo_2019, legend.pos = "top.left") +
+            theme(axis.text.x = element_text(size = 12, colour = "black"),
+                  axis.text.y = element_text(size = 12, colour = "black"),
+                  axis.title.x = element_text(size = 12, colour = "black"),
+                  plot.title = element_text(size = 12, colour = "black"))
+```
+
+__Figure S4__  
+Bubble plot showing the results of a meta-regression model: relationship between a continuous moderator (in our case, *elevation*) and effect size magnitude (lnRR). 
+
+
+# Checking for publication bias and robustness {.tabset} 
+
+## Detecting and correcting for publication bias
+
+- **Detecting small study effect**
+
+The first form publication bias is **small study effect** where an effect size value from a small-sample-sized study (large uncertainty and low precision) can be much larger in magnitude than a ‘true’ effect. A straightforward way to detect small study effect is to add the uncertainty of effect size as a moderator, such that the relationship between effect size and its uncertainty can be quantified. We propose to formulate Egger's regression (which is a classic method to detect the symmetry of a funnel plot) in the framework multilevel model to detect the small-study effect for dependent effect sizes:
+
+$$
+z_{i} = \beta_{0} + \beta_1\sqrt{\frac {1} {\tilde{n_i}}} + \mu_{j[i]} + e_{i} + m_{i}, (16)
+$$
+$$
+z_{i} = \beta_{0} + \beta_1(\frac {1} {\tilde{n_i}}) + \mu_{j[i]} + e_{i} + m_{i}, (17)
+$$
+
+Sampling error $\sqrt{\nu_i}$ is a typical uncertainty measure of effect size $z_{i}$. However, for some types of effect size, for example, SMD and lnRR, $z_{i}$ has a intrinsic relationship with its $\nu_i$ (see **Table 2**). Therefore, $\nu_i$ is not a preferred moderator to detect small-study effect. In Equation 16, we use an undated sampling error based on effective sample size $\tilde{n}$ as the moderator. Let's calculate $\tilde{n} = \frac {n_{iC}n_{iT}} {n_{iC}+n_{iT}}$ for lnRR in our example (see **Table 2** for formulas for other effect sizes):
+
+<pre class="code rsplus">
+ess.var_cal <- function(dat){1/dat$n_control + 1/dat$n_treatment} # write a help function to calculate adapted sampling variance based on effective size based  - tilde n
+dat2_Midolo_2019$ess.var <- ess.var_cal(dat2_Midolo_2019) # calculate tilde N
+dat2_Midolo_2019$ess.se <- sqrt(dat2_Midolo_2019$ess.var) # calculate adapted sampling error based on effective size - tilde square root n
+</pre>
+
+```{r tilde n - adjusted sampling var}
+# write a help function to calculate effective size based sampling variance - tilde n
+ess.var_cal <- function(dat){1/dat$n_control + 1/dat$n_treatment} 
+# calculate tilde N
+dat2_Midolo_2019$ess.var <- ess.var_cal(dat2_Midolo_2019)
+# calculate effective size based sampling error - tilde square root n
+dat2_Midolo_2019$ess.se <- sqrt(dat2_Midolo_2019$ess.var)
+```
+
+Then the Equation 16 can be fitted with:
+
+<pre class="code rsplus">
+mod_MLMR_lnRR_ess.se <- rma.mv(yi = lnRR, 
+                               V = VCV, 
+                               mods = ~ ess.se, # add adjusted based sampling error - tilde square root n as a moderator to test small study effect. 
+                               random = list(~1 | Study_ID, 
+                                             ~1 | ES_ID), 
+                               method = "REML", 
+                               test = "t", 
+                               data = dat2_Midolo_2019
+                               )
+</pre>
+
+The outputs of the above fitted model are exactly the same as those of a meta-regression model:
+```{r small-study effect}
+# fit Equation 16 to test small study effect
+mod_MLMR_lnRR_ess.se <- rma.mv(yi = lnRR, 
+                               V = VCV, 
+                               mods = ~ ess.se,
+                               random = list(~1 | Study_ID, 
+                                             ~1 | ES_ID), 
+                               method = "REML", 
+                               test = "t", 
+                               data = dat2_Midolo_2019,
+                               sparse = TRUE
+                               )
+# summary results
+summary(mod_MLMR_lnRR_ess.se)
+```
+
+If you followed the early sections of this tutorial carefully, We guess you already can interpret the results by yourself. Yes, look at `ess.se` given under **Model Results**: *p-value* and 95% CIs show that effect size has no statistical relationship between its error, meaning that no small study effect exits. The bubble plot (**Figure S5**) also indicates that there is no visual correlation between effect size and its error - effect size symmetrically distribute on the funnel plot (**Figure S6**).
+
+```{r Fig. S5}
+bubble_plot(mod_MLMR_lnRR_ess.se, 
+            mod = "ess.se", 
+            xlab = "Adjusted sampling error", ylab = "Effect size lnRR",
+            group = "Study_ID", k = TRUE, g = TRUE,
+            data = dat2_Midolo_2019, legend.pos = "top.left") +
+            theme(axis.text.x = element_text(size = 12, colour = "black"),
+                  axis.text.y = element_text(size = 12, colour = "black"),
+                  axis.title.x = element_text(size = 12, colour = "black"),
+                  plot.title = element_text(size = 12, colour = "black"))
+```
+
+__Figure S5__  
+Bubble plot showing the relationship between the effect size magnitude and its adjusted sampling error (effective sample size based). Small studies (low precision) do not report large effect sizes.
+
+```{r Fig. S6}
+# make a funnel plot
+funnel(mod_MLMR_lnRR_ess.se, yaxis = "seinv", 
+       ylab = "Precision (1/SE)",
+       xlab = "Effect size lnRR")
+```
+
+__Figure S6__  
+Visual inspection of the funnel plot to identify the small study effect.
+
+- **Detecting decline effect**
+
+Decline effect, also known as time-lag bias, is the second form of publication bias where effect sizes tend to get closer to zero over time. Testing decline effect is important because the temporal changes in evidence of a given field poses a threat to environmental policy-making, management, and practices. Decline effect can be tested by a meta-regression with publication year (centered to ease interpretation: $c(year_{j[i]})$) as a moderator:
+
+$$
+z_{i} = \beta_{0} + \beta_1c(year_{j[i]}) + \mu_{j[i]} + e_{i} + m_{i}, (18)
+$$
+Equation 18 can be fitted with code: 
+
+<pre class="code rsplus">
+mod_MLMR_lnRR_Year.c <- rma.mv(yi = lnRR, 
+                               V = VCV, 
+                               mods = ~ Year.c, # add centered year as a moderator to detect decline effect.
+                               random = list(~1 | Study_ID, 
+                                             ~1 | ES_ID), 
+                               method = "REML", 
+                               test = "t", 
+                               data = dat2_Midolo_2019,
+                               sparse = TRUE
+                               )
+</pre>
+
+As you see in the following results,regression slope is `Year.c` = 0.002 (95% CIs = [-0.0022 to 0.0062]), which is very small and not statistically different from zero (`t_value` = 0.9135 and `p-val` = 0.3611), suggesting studies with statistically significant results do not publish earlier than these with statistically non-significant results results, i.e. no time-lag bias (**Figure S7**).   
+
+```{r decline effect}
+### create a variable containing publication year
+dat2_Midolo_2019 <- dat2_Midolo_2019 %>% mutate(Year = as.integer(str_extract(study_name,"\\d+")))
+
+### center publication year to ease interpretation of the results
+dat2_Midolo_2019$Year.c <- dat2_Midolo_2019$Year - mean(dat2_Midolo_2019$Year) # we will use this variable as a predictor to estimate decline effect
+
+### fit Equation 18 to test decline effect
+mod_MLMR_lnRR_Year.c <- rma.mv(yi = lnRR, 
+                               V = VCV, 
+                               mods = ~ Year.c,
+                               random = list(~1 | Study_ID, 
+                                             ~1 | ES_ID), 
+                               method = "REML", 
+                               test = "t", 
+                               data = dat2_Midolo_2019,
+                               sparse = TRUE
+                               )
+# summary results
+summary(mod_MLMR_lnRR_Year.c)
+```
+
+```{r Fig. S7}
+bubble_plot(mod_MLMR_lnRR_Year.c, 
+            mod = "Year.c", 
+            xlab = "Publication year (centered on 2008)", ylab = "Effect size lnRR",
+            group = "Study_ID", k = TRUE, g = TRUE,
+            data = dat2_Midolo_2019, legend.pos = "top.left") +
+            theme(axis.text.x = element_text(size = 12, colour = "black"),
+                  axis.text.y = element_text(size = 12, colour = "black"),
+                  axis.title.x = element_text(size = 12, colour = "black"),
+                  plot.title = element_text(size = 12, colour = "black"))
+```
+
+__Figure S7__  
+Bubble plot showing the relationship between the effect size magnitude and publication year (centered on 2008). There is no temporal trend in the changes of the effect size magnitude.
+
+- **Correcting for publication bias**
+
+Besides detecting publication bias, it is necessary to correct for such a bias to check the robustness of model estimates. Intercept $\beta_{0}$ in Equation 17 can be interpreted as the publication-bias-corrected overall effect ('true' effect). Because $\beta_{0}$ is the model coefficient when setting $\frac {1} {\tilde{n}}$ = 0, which means the dataset has a infinite sample size (high precision) and thus has no small-study effect. To obtain publication-bias-corrected overall effect, we need to fit Equation 17 with:
+
+<pre class="code rsplus">
+mod_MLMR_lnRR_ess.var <- rma.mv(yi = lnRR, 
+                                V = VCV, 
+                                mods = ~ ess.var, # adding adjusted sampling error to obtain publication-bias-corrected overall effect - which is potentially regarded as 'true' effect.
+                                random = list(~1 | Study_ID, 
+                                              ~1 | ES_ID), 
+                                method = "REML", 
+                                test = "t", 
+                                data = dat2_Midolo_2019,
+                                sparse = TRUE
+                                )
+</pre>
+
+`intrcpt` printed under **Model Results** shows that intercept $\beta_0$ (-0.0029, 95% CIs = [-0.0659 to 0.0602]) is still statistically non-significant (*p-value* = 0.9285), although the magnitude and direction change. This suggests that the meta-analytic estimate of this dataset (@midolo2019global) is robust to publication bias (**Table S4**).
+
+```{r bias-correction}
+### fit Equation 17 to correct for publication bias
+mod_MLMR_lnRR_ess.var <- rma.mv(yi = lnRR, 
+                                V = VCV, 
+                                mods = ~ ess.var,
+                                random = list(~1 | Study_ID, 
+                                              ~1 | ES_ID), 
+                                method = "REML", 
+                                test = "t", 
+                                data = dat2_Midolo_2019,
+                                sparse = TRUE
+                                )
+# summary results
+summary(mod_MLMR_lnRR_ess.var)
+```
+
+**Table S4**
+Comparison of original meta-analytic estimates and bias-corrected meta-analytic estimates. 
+```{r Table S4}
+### make a table to compare the original effect size and the adjusted effect size
+t4 <- data.frame("Overall effect" = c(round(mod_ML_lnRR_VCV$b[1],4), round(mod_MLMR_lnRR_ess.var$b[1],4)),
+             "Standard error" = c(round(mod_ML_lnRR_VCV$se,4), round(mod_MLMR_lnRR_ess.var$se[1],4)),
+             "p-value" = c(round(mod_ML_lnRR_VCV$pval,3), round(mod_MLMR_lnRR_ess.var$pval[1],3)),
+             "Lower CI" = c(round(mod_ML_lnRR_VCV$ci.lb,4), round(mod_MLMR_lnRR_ess.var$ci.lb[1],4)),
+             "Upper CI" = c(round(mod_ML_lnRR_VCV$ci.ub,4), round(mod_MLMR_lnRR_ess.var$ci.ub[1],4)))
+
+colnames(t4) <- c("Overall effect", "Standard error", "p-value", "Lower CI", "Upper CI")
+
+t4_2 <- t(t4) %>% as.data.frame()
+colnames(t4_2) <- c("Original estimate", "Bias-corrected estimate")
+
+#t4_2 %>% DT::datatable()
+t4_2 %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
+                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
+                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+```
+
+
+**Accounting for heterogeneity when detecting publication bias**
+
+In our main text, We introduce Equation 19 to simultaneously detect two forms of publication bias while account for heterogeneity to increase power and reduce Type I error rate: 
+
+$$
+z_{i} = \beta_{0} + \beta_1\sqrt{\frac {1} {\tilde{n_i}}} + \beta_2c(year_{j[i]}) + \sum \beta_{h}x_{h[i]} + \mu_{j[i]} + e_{i} + m_{i}, (19)
+$$
+To fit Equation 19 via `rma.mv`, we only need to put adapted sampling error ($\beta_1\sqrt{\frac {1} {\tilde{n_i}}}$), publication year ($c(year_{j[i]}$) and other important study characteristics as moderator variables in a meta-regression (e.g., multiple meta-regression; see section **Explaining variance with meta-regression**). We arbitrarily select *elevation* and *trait* as moderators to show the implementation:
+```{r multiple MR}
+
+### fit Equation 19 to detect publication bias while controlling heterogeneity
+mod_MLMR_lnRR_whole <- rma.mv(yi = lnRR, 
+                                V = VCV, 
+                                mods = ~ ess.var + Year.c + elevation_log + trait -1,
+                                random = list(~1 | Study_ID, 
+                                              ~1 | ES_ID), 
+                                method = "REML", 
+                                test = "t", 
+                                data = dat2_Midolo_2019,
+                                sparse = TRUE
+                                )
+# summary results
+summary(mod_MLMR_lnRR_whole)
+```
+
+From the follow model outputs, we see that the slopes of $\sqrt{\frac {1} {\tilde{n_i}}}$ ($\beta_1$) and $c(year_{j[i]}$ ($\beta_2$) still remain non-significant, albeit changes in magnitude , confirming that there is no publication bias.
+
+
+## Conducting sensitivity analysis & critical appraisal
+
+- **Sensitivity of assumption of within-study (sampling) correlation**
+
+Here, we show how to perform a sensitivity analysis to examine the extent to which the overall effect (e.g., $\beta_{0}$) is sensitive to the assumption of within-study (sampling) correlation $\rho$ values used for constructing variance-covariance matrix (VCV).
+
+First, set a series of $\rho$ (i.e., 0.3, 0.5, 0.7, 0.9) (we assume these values arbitrarily; you can set them based on your expertise in your field):
+
+<pre class="code rsplus">
+rho_range <- c(0.3, 0.5, 0.7, 0.9)
+</pre>
+
+Then, we write a function to help repeatedly run the specified model, changing $\rho$ at a time:
+
+<pre class="code rsplus">
+ML_VCV_range <- list() # repeatedly run the specified model with varying rho
+for (i in 1:length(rho_range)) {
+
+VCV_range <- vcalc(vi = lnRRV, 
+             cluster = Study_ID, 
+             obs = ES_ID, 
+             data = dat2_Midolo_2019, 
+             rho = rho_range[i]) # impute VCV matrix with variying rho
+              
+ML_VCV_range[[i]] <- rma.mv(yi = lnRR, 
+                            V = VCV_range, # VCV matrix with varying values of rho. 
+                            random = list(~1 | Study_ID, 
+                                          ~1 | ES_ID), 
+                            method = "REML", 
+                            test = "t", 
+                            data = dat2_Midolo_2019
+                           )} # run model with different rho values.
+</pre>
+
+```{r sensitivity of rho}
+# assume a range values of rho
+rho_range <- c(0.3, 0.5, 0.7, 0.9)
+# fit model with a range values of rho
+ML_VCV_range <- list()
+for (i in 1:length(rho_range)) {
+# impute VCV matrix
+VCV_range <- vcalc(vi = lnRRV, 
+             cluster = Study_ID, 
+             obs = ES_ID, 
+             data = dat2_Midolo_2019, 
+             rho = rho_range[i])
+# run model                   
+ML_VCV_range[[i]] <- rma.mv(yi = lnRR, 
+                            V = VCV_range, # VCV matrix with varying values of rho. 
+                            random = list(~1 | Study_ID, 
+                                          ~1 | ES_ID), 
+                            method = "REML", 
+                            test = "t", 
+                            data = dat2_Midolo_2019,
+                            sparse = TRUE
+                           )}
+```
+
+
+From **Table S5**, we see that the overall effect $\beta_{0}$ does not change with the changing of $\rho$ values, indicating that the model estimates are robust to different assumption of $\rho$. 
+
+__Table S5__
+Sensitivity analysis examing the robustness ofthe  overall effect (i.e., $\beta_0$) to the assumption of $\rho$ values.  
+
+```{r Table S5}
+t5 <- data.frame(rho  = rho_range,
+                 "overall effect"  = sapply(ML_VCV_range, function(x) coef(x)),
+                 "standard error" = sapply(ML_VCV_range, function(x) x$se),
+                 "p-value" = sapply(ML_VCV_range, function(x) x$pval),
+                 "Lower CI" = sapply(ML_VCV_range, function(x) x$ci.lb),
+                 "Upper CI" = sapply(ML_VCV_range, function(x) x$ci.ub))
+
+colnames(t5) <- c("Correlation (ρ)", "Overall effect", "Standard error", "p-value", "Lower CI", "Upper CI")
+
+t5 %>% DT::datatable() # kable(digits=c(1,3,3,4,3,3))
+t5 %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
+                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
+                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+```
+
+
+- **Leave-one-out analysis**
+
+The sensitivity analysis (robustness of results) also can be conducted by repeatedly fitting the model based on the dataset with one unit/entry (e.g., study) deleted at a time. This method is known as leave-one-out analysis. 'One unit/entry' denotes a row from the dataset fed to the model. 
+Primary study included in the dataset is the typical 'one unit/entry'. Leave-one-out analysis is a useful method to diagnose outlier and influential studies (which exert disproportionate influence on model estimates like overall effect $\beta_0$ and its 95% CIs). As you might imagine, leave-one-out analysis re-fit the model *N* (the number of study) times. So it may take quite a long time to finish such a analysis if you have a large *N*.
+
+For fixed and random effects models, the implementation of leave-one-out analysis can be easily performed via `leave1out()` function in `metafor`. The syntax is just one line:
+
+<pre class="code rsplus">
+leave1out(mod_FE_lnRR)
+</pre>
+
+Let's have a look at the results of the first 10 rows:
+```{r leave1out RE}
+leave1out_REresults <- leave1out(mod_FE_lnRR)
+head(leave1out_REresults, 10)
+```
+
+For our proposed multilevel model, no existing packages or functions are ready to use. But you can modify the following code to implement leave-one-out analysis in the framework of multilevel model. Later, we will write a corresponding function and wrap it into `orchaRd` package. The syntax for using study as unit deleted at a time is:
+
+<pre class="code rsplus">
+dat2_Midolo_2019$leave_out <- as.factor(dat2_Midolo_2019$study_name) # create the variable that will be left out
+leave1out_ES <- list() # create a list to contain model estimates
+for(i in 1:length(levels(dat2_Midolo_2019$leave_out))){
+  # create the data with one study removed at a time
+  dat <- dat2_Midolo_2019 %>% filter(leave_out != levels(dat2_Midolo_2019$leave_out)[i]) # repeatedly run the multilevel model, leaving out one study at a time
+  
+  VCV_leave1out <- list() 
+  VCV_leave1out[[i]] <- impute_covariance_matrix(vi = dat$lnRRV, cluster = dat$Study_ID, r = 0.5)  # create a list of VCV matrices for following model fitting
+  
+  leave1out_mod[[i]] <- rma.mv(yi = lnRR, 
+                                 V = VCV_leave1out[[i]], 
+                                 random = list(~1 | Study_ID,
+                                               ~1| ES_ID), 
+                                 method = "REML", 
+                                 test = "t",
+                                 data = dat,
+                                 sparse = TRUE)} # model fitting
+
+
+est.func <- function(mod){
+  df <- data.frame(est = mod$b, lower = mod$ci.lb, upper = mod$ci.ub)
+  return(df)
+} # write a simple function to extract intercept and 95% CIs from each of the above fitted models
+
+leave1out_results <- lapply(leave1out_mod, function(x) est.func(x)) %>% bind_rows %>% mutate(left_out = levels(dat2_Midolo_2019$leave_out)) # turn the model estimates in the format of data frame
+</pre>
+
+```{r leave1out ML}
+### create the variable that will be left out 
+dat2_Midolo_2019$leave_out <- as.factor(dat2_Midolo_2019$study_name)
+
+### create a list to contain model estimates
+leave1out_mod <- list()
+### repeatedly run the multilevel model, leaving out one study at a time
+for(i in 1:length(levels(dat2_Midolo_2019$leave_out))){
+### create the data with one study removed at a time
+dat <- dat2_Midolo_2019 %>% filter(leave_out != levels(dat2_Midolo_2019$leave_out)[i])
+  
+### create a list of VCV matrices for following model fitting
+VCV_leave1out <- list() 
+VCV_leave1out[[i]] <- impute_covariance_matrix(vi = dat$lnRRV, cluster = dat$Study_ID, r = 0.5) 
+  
+### model fitting
+leave1out_mod[[i]] <- rma.mv(yi = lnRR, 
+                             V = VCV_leave1out[[i]], 
+                             random = list(~1 | Study_ID,
+                                           ~1| ES_ID), 
+                             method = "REML", 
+                             test = "t",
+                             data = dat,
+                             sparse = TRUE)}
+
+### write a simple function to extract intercept and 95% CIs from each of the above fitted models
+est.func <- function(mod){
+  df <- data.frame(est = mod$b, lower = mod$ci.lb, upper = mod$ci.ub)
+  return(df)
+}
+
+### turn the model estimates in the format of data frame
+leave1out_results <- lapply(leave1out_mod, function(x) est.func(x)) %>% bind_rows %>% mutate(left_out = levels(dat2_Midolo_2019$leave_out))
+```
+
+The results of leave-one-out analysis are shown on **Figure S8**, from which we see that there seems no outlier and influential study obviously affecting the model estimates.
+
+```{r Fig. S8}
+# visualize the model estimates
+leave1out_results$left_out <- as.factor(leave1out_results$left_out)
+leave1out_results$left_out <- factor(leave1out_results$left_out, levels = leave1out_results$left_out) # stop reordering factors and show correct order in plot
+
+leave1out_p <- ggplot(leave1out_results) +
+  geom_hline(yintercept = 0, lty = 2, lwd = 1) +
+  geom_hline(yintercept = mod_ML_lnRR_VCV$ci.lb, lty = 3, lwd = 0.75, colour = "black") +
+  geom_hline(yintercept = mod_ML_lnRR_VCV$b, lty = 1, lwd = 0.75, colour = "black") +
+  geom_hline(yintercept = mod_ML_lnRR_VCV$ci.ub, lty = 3, lwd = 0.75, colour = "black") +
+  geom_pointrange(aes(x = left_out, y = est, ymin = lower, ymax = upper)) +
+  xlab("Study left out") + 
+  ylab("lnRR (95% CI)") + 
+  coord_flip() +
+  theme(panel.grid.minor = element_blank())+
+  theme_bw() + theme(panel.grid.major = element_blank()) +
+  theme(panel.grid.minor.x = element_blank() ) +
+  theme(axis.text.y = element_text(size = 6))
+
+leave1out_p
+```
+
+**Figure S8** 
+Leave-one-out analysis showing overall effects $\beta_0$ and 95% CIs based on dataset with one study left out at a time from model fitting.
+
+The distribution of overall effect ($\beta_0$) after deleting one study at a time also confirms no obvious outlier (**Figure S9**).
+
+```{r Fig. S9}
+# histogram overlaid with kernel density curve
+leave1out_hist <- ggplot(leave1out_results, aes(x=est)) + 
+    geom_histogram(aes(y=..density..), # histogram with density instead of count on y-axis
+                   binwidth=.0005,
+                   colour="black", fill="white") +
+    geom_density(alpha=.2, fill="#FF6666") +  # overlay with transparent density plot
+    geom_vline(aes(xintercept=mean(coef(mod_ML_lnRR_VCV), na.rm=T)), color="red", linetype="dashed", size=1) +
+  labs(x = "Effect size lnRR", y = "Deisity") # xlab("Effect size lnRR")
+
+leave1out_hist
+```
+
+**Figure S9**
+Leave-one-out analysis showing distribution of overall effects $\beta_0$ based on dataset with one study left out at a time from model fitting.
+
+There are also other diagnostic indices can be calculated from leave-one-out analysis, for example, Cook's distance, difference between the regression coefficients (DFBETAS), and hat value. 
+
+- Cook's distance = the Mahalanobis distance between the predicted (average) effect based on the full dataset and those based on the dataset with one study excluded from the model fitting. A study may be considered as 'outlier' if the lower-tail area of a chi-square distribution (with $p$ degrees = the number of model coefficients of freedom) cut off by the Cook's distance is more than 50%.
+
+- DFBETAS = changes in the predicted (average) effect for a specific study (quantified as standard deviations) after excluding the specific study from the model fitting. A study may be considered as 'outlier' the value of is more than 1.
+
+- Halt value = the diagonal elements of the hat matrix that can transform the vector of observed effect into the vector of predicted. Halt value can determine the magnitude of residual based on dataset with a deleted study and therefore can help identify outlying studies. A study may be considered as 'outlier' if the halt value is more than $3(\frac {p} {N})$ (where $N$ = the number of studies).
+
+There is point worth noting - these indices can be easily computed in `R`, but the above cut-offs are arbitrary. Therefore, if you want to use these indices, you really need informed judgments. Below we show how to calculate these indices. 
+
+Cook's distance can be calculated via `cooks.distance()`:
+
+<pre class="code rsplus">
+cooks.distance(mod_ML_lnRR_VCV, cluster = Study_ID)
+</pre>
+
+```{r Cook distance}
+### Cook's distance for each district
+#cooks.distance_results <- cooks.distance(mod_ML_lnRR_VCV, cluster = Study_ID)
+```
+
+```{r Fig. S10}
+#plot(cooks.distance_results, type = "o", pch = 19, xlab = "Study", ylab = "Cook's Distance", xaxt = "n")
+# axis(side = 1, at = seq_along(cooks.distance_results), labels = as.numeric(names(cooks.distance_results)))
+```
+
+__Figure S10__
+Cook's distance showing how much all of the predicted effects in the model change when one study is deleted.
+
+The calculation of DFBETAS and hat values can be done with `dfbetas()` and `hatvalues()`, respectively. The syntax is just as simple as that in `cooks.distance()`. Given the long time the calculation will take (our example dataset is very large), we do not show the results.
+
+- **Quantitative critical appraisal**
+
+Besides the qualitative methods to critically appraise the risk of bias of primary studies included in a meta-analysis, we recommend the quantitative methods. Meta-regression shown early provides a arsenal for quantitatively appraise the risk of primary studies. When compiling dataset, you need to extract variables related the risk-of-bias (*RoB*) characteristics, for example, blinding, randomization, and selective reporting. Then you can code these variables as moderators to be incorporated into a meta-regression. Unfortunately, at present, no environmental meta-analyses (at least our surveyed papers) have coded relevant moderators. Therefore, we are unable to provide an example to show implementation. The implementation is straightforward - you just need to use `mods` argument in `rma.mv()` function and supply *RoB* variables to the `mods` using a formula: `mods = ~ RoB`. 
+
+Our team (Shinichi Nakagawa) has published a paper that examined whether the selective reporting inflates the effect size estimates:
+
+> Parker T H, Greig E I, Nakagawa S, et al. Subspecies status and methods explain strength of response to local versus foreign song by oscine birds in meta-analysis[J]. Animal Behaviour, 2018, 142: 1-17.
+
+In this paper, we ran a meta-regression with selective reporting as a moderator and found that selective reporting inflated the effect size estimates. This paper exactly demonstrate the for **transparent reporting & open archiving** we contend in our main text. We refer to the relevant code archived at [Open Science Framework](https://osf.io/w2mvp/) to reproduce this quantitative critical appraisal if you think you are capable of conducting such an analysis with our illustration.
+
+# Other relevant and advanced issues {.tabset} 
+
+## Missing data 
+
+According to our survey, many environmental meta-analyses have the issues of missing values for some of the primary studies:
+
+(1) missing standard deviations or sample sizes and associated with means, making effect size calculations in-feasible;
+
+(2) missing descriptions of study characteristics related variables, making coding of moderator variables impossible.
+
+The usual practice of environmental meta-analysts to deal these issues is to delete the whole relevant studies. This will reduce the statistical power and precision of model coefficients (e.g., $\beta_0$ and $\beta_1$) due to the loss of sample size (in this case, the number of deleted studies), and limit the ability to reveal the drivers of heterogeneity between effect sizes due the loss of explanatory variables (i.e., moderators). 
+
+Here, we show how to impute missing standard deviation, which is a common phenomenon in environmental meta-analyses. We will introduce 2 readily implementable techniques to impute standard deviation. All the 2 methods are (partial) based on mean-variance relationship (strong correlation between standard deviation and mean). 
+
+The first method is simple multiple imputation, which imputes standard deviation using the coefficient of variation (CV) from all complete cases but uses resampling method to account for uncertainty when using CV from complete information;
+
+The second method is an improved method for imputing standard deviations of lnRR, which imputes standard deviation using weighted average CV to improve the precision of sampling variance estimates. The reason why we introduce an imputation method for lnRR is that lnRR is the most commonly used effect size statistic in environmental meta-analyses (details see survey results in the main text).
+
+Before formally showing implementation, we need to artificially create incomplete standard deviations in our dataset. we randomly select 20% of the studies and delete their standard deviations from both control (*sd_control*) and treatment groups (*sd_treatment*).
+
+<pre class="code rsplus">
+missing_SD <- dat2_Midolo_2019 # copy the dataset into missing_SD, which is used as the dataset for illustration of imputation method
+
+set.seed(2022) # set the seed (for the random number generator) to make the following results fully reproducible; it is good practice to set the seed to make our results fully reproducible
+
+stdies <- sample(unique(missing_SD$study_name), size = 0.2*(length(unique(missing_SD$study_name)))) # randomly sample 20% of studies
+    
+missing_SD[which(missing_SD$study_name %in% stdies), c("sd_treatment", "sd_control")] <- NA # create missingness of SD at the study level
+</pre>
+
+Let's have a look at the summary of artificially-created missingness in the dataset:
+
+```{r dateset with missing SD}
+missing_SD <- dat2_Midolo_2019 # Copy the dataset into missing_SD, which is used as an example of imputation
+
+set.seed(2022) # set the seed (for the random number generator) to make the following results fully reproducible
+
+stdies <- sample(unique(missing_SD$study_name), size = 0.2*(length(unique(missing_SD$study_name)))) # randomly sample 20% of studies
+    
+missing_SD[which(missing_SD$study_name %in% stdies), c("sd_treatment", "sd_control")] <- NA # create missingness of SD at the study level
+
+### a summary of the percentage of missing SD
+impute_missingness(missing_SD)
+```
+
+Below let's show the implementation one by one.
+
+- **Simple multiple imputation**
+
+Multiple imputation methods are generally complex. Fully introducing Multiple imputation methods is beyond the scope of our paper - it deserves a independent paper. Many multiple imputation methods can be implemented via  a powerful package `mice`. If you have interests in these advanced methods, 
+you can look at the documentation of (`help(mice)`). Here, we introduce a simple multiple imputation method, which is based on the strong correlation between standard deviation and mean values and resort to resampling approach to make the imputed SD get rid of the uncertainty of imputation itself, such that the Type I error rate can be reduced. This method can be implemented via `impute_SD()` function in `metagear` package. The syntax for this is:
+
+<pre class="code rsplus">
+dat_simple <- impute_SD(missing_SD, 
+                        columnSDnames = c("sd_treatment", "sd_control"), # a string or list containing the labels of the column(s) with missing SD;
+                        columnXnames = c("treatment", "control"), a string or list containing the labels of the column(s) with mean values for each SD.
+                        method = "HotDeck")
+</pre>
+
+```{r simple imputation}
+### using simple method to impute SD 
+dat_simple <- impute_SD(missing_SD, 
+                        columnSDnames = c("sd_treatment", "sd_control"), 
+                        columnXnames = c("treatment", "control"), 
+                        method = "HotDeck")
+
+
+# summary the imputed data
+impute_missingness(dat_simple)
+```
+
+We see that all the missing standard deviations (in both control and treatment groups) are imputed. 
+
+- **Improved imputation**
+
+Our team (Shinichi Nakagawa and Malgorzata Lagisz) recently developed a tailored method for imputing missing standard deviations in lnRR. Our heavy simulation indicates that this method outputs the simple method based on the mean-variance relationship. Details see the following paper:
+
+> Nakagawa, S., Noble, D. W., Lagisz, M., Spake, R., Viechtbauer, W., & Senior, A. M. (2022, May 19). A robust and readily implementable method for the meta-analysis of response ratios with and without missing standard deviations. https://doi.org/10.32942/osf.io/7thx9
+
+We assume this method will help environmental meta-analysts a lot because lnRR is the mostly used effect size statistic in the field. In brief, this method is based on the weighted average CV rather than a simple average of CV. Using weighted average CV will give some data points carry more weight than others, such that the precision of sampling variance estimates can be improved. Below, we borrow two custom functions we wrote for the above paper to show implementation. 
+
+`cv_avg()` = compute the weighted average (square) CV within a study and the weighted average (square) CV between studies
+
+`lnrr_laj()` = compute the point estimate of lnRR based on Taylor expansion
+
+`v_lnrr_laj()` = compute the sampling variance for lnRR based on second order Taylor expansion
+
+The full code is give below:
+
+<pre class="code rsplus">
+dat_improved <- missing_SD %>% 
+                mutate(cv_control = na_if(sd_control / control, Inf),
+                       cv_treatment = na_if(sd_treatment / treatment, Inf)) # first calculate CV on dataset with missing SDs wherein missing SD will be ignored when calculating
+
+dat_improved <- cv_avg(x = control, sd = sd_control, n = n_control, 
+                       group = study_name, 
+                       label = "1", # control group
+                       data = dat_improved) # calculate the average between-study CV, which will replace missing SD
+    
+dat_improved <- cv_avg(x = treatment, sd = sd_treatment, n = n_treatment,
+                       group = study_name, 
+                       label = "2", # treatment group
+                       data = dat_improved)
+
+dat_improved <- dat_improved %>%
+                mutate(cv2_control_new = if_else(is.na(cv_control), b_CV2_1, cv_control^2),
+                       cv2_treatment_new = if_else(is.na(cv_treatment), b_CV2_2, cv_treatment^2)) # use weighted between-study CV to replace missing CV (which is due to missing SD)
+
+
+dat_improved <- dat_improved %>%
+                mutate(lnRR_new = lnrr_laj(m1 = control, m2 = treatment, cv1_2 = cv2_control_new, cv2_2 = cv2_treatment_new, n1 = n_control, n2 = n_treatment),
+                       lnRRV_new = v_lnrr_laj(cv1_2 = cv2_control_new, n1= n_control, cv2_2 = cv2_treatment_new, n2 = n_treatment)) # compute the new point estimate of lnRR and and its sampling variance, respectively. This uses either the between-individual CV^2 when missing or normal CV^2 when not missing
+</pre>
+
+```{r improved imputation}
+### first calculate CV on dataset with missing SDs wherein missing SD will be ignored when calculating
+dat_improved <- missing_SD %>% 
+                mutate(cv_control = na_if(sd_control / control, Inf),
+                       cv_treatment = na_if(sd_treatment / treatment, Inf))
+
+### calculate the average between-study CV, which will replace missing SD
+dat_improved <- cv_avg(x = control, sd = sd_control, n = n_control, 
+                       group = study_name, 
+                       label = "1", # control group
+                       data = dat_improved)
+    
+dat_improved <- cv_avg(x = treatment, sd = sd_treatment, n = n_treatment,
+                       group = study_name, 
+                       label = "2", # treatment group
+                       data = dat_improved)
+
+### use weighted between-study CV to replace missing CV (which is due to missing SD)
+dat_improved <- dat_improved %>%
+                mutate(cv2_control_new = if_else(is.na(cv_control), b_CV2_1, cv_control^2),
+                       cv2_treatment_new = if_else(is.na(cv_treatment), b_CV2_2, cv_treatment^2))
+
+### compute the new point estimate of lnRR and and its sampling variance, respectively. This uses either the between-individual CV^2 when missing or normal CV^2 when not missing.
+dat_improved <- dat_improved %>%
+                mutate(lnRR_new = lnrr_laj(m1 = control, m2 = treatment, cv1_2 = cv2_control_new, cv2_2 = cv2_treatment_new, n1 = n_control, n2 = n_treatment),
+                       lnRRV_new = v_lnrr_laj(cv1_2 = cv2_control_new, n1= n_control, cv2_2 = cv2_treatment_new, n2 = n_treatment))
+```
+
+
+
+```{r simple vs. improved}
+### computation lnRR based on imputed SDs by simple multiple imputation
+dat_simple <- escalc(measure = "ROM",  
+               m1i = treatment, 
+               m2i = control, 
+               sd1i = sd_treatment, 
+               sd2i = sd_control, 
+               n1i = n_treatment, 
+               n2i = n_control, 
+               data = dat_simple)
+
+### fit dataset based on simple method (the above dataset)
+mod_simple <- rma.mv(yi = yi, 
+                     V = vi, 
+                     random = list(~1 | Study_ID, 
+                                   ~1 | ES_ID), 
+                     test = "t",
+                     method = "REML", 
+                     data = dat_simple,
+                     sparse = TRUE)
+
+
+### fit dataset based on improvded imputation method
+mod_improved <- rma.mv(yi = lnRR_new, 
+                       V = lnRRV_new, 
+                       random = list(~1 | Study_ID, 
+                                    ~1 | ES_ID), 
+                       test = "t",
+                       method = "REML", 
+                       data = dat_improved,
+                       sparse = TRUE) 
+```
+
+We summarize the model estimates based the above two imputation methods in **Table S6**.
+
+**Table S6**
+Comparison of estimates of model coefficients based on datasets with two simple imputation method and improved version.
+```{r Table S6}
+### make a table to compare the model estimates
+t6 <- data.frame("Overall effect" = c(round(mod_ML_lnRR2$b[1],4), round(mod_simple$b[1],4), round(mod_improved$b[1],4)),
+             "Standard error" = c(round(mod_ML_lnRR2$se[1],4), round(mod_simple$se,4), round(mod_improved$se[1],4)),
+             "p-value" = c(round(mod_ML_lnRR2$pval[1],4), round(mod_simple$pval,4), round(mod_improved$pval[1],4)),
+             "Lower CI" = c(round(mod_ML_lnRR2$ci.lb[1],4), round(mod_simple$ci.lb[1],4), round(mod_improved$ci.lb[1],4)),
+             "Upper CI" = c(round(mod_ML_lnRR2$ci.ub[1],4), round(mod_simple$ci.ub,4), round(mod_improved$ci.ub[1],4)))
+
+colnames(t6) <- c("Overall effect", "Standard error", "p-value", "Lower CI", "Upper CI")
+
+t6_2 <- t(t6) %>% as.data.frame()
+colnames(t6_2) <- c("Complete dataset", "Simple imputation method", "Improved imputation method")
+
+# t6_2 %>% DT::datatable()
+t6_2 %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
+                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
+                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+```
+
+
+## Complex non-independence
+
+- **Multiple sources of non-independence**
+
+Environmental meta-analytic datasets may have more clustering variables other than study identity causing statistical non-independence. As you could probably imagine, genus (*species*) could be such a clustering variable in an environmental dataset with multiple species included, as effect sizes derived from the same species are probably more similar to each other than effect sizes from different species due to similar genetics, shared history or phylogenetic relatedness. The multilevel model has a flexible random effects structure handling complex non-independence like, for example, taxonomic dependence, by adding associated clustering variables (e.g.,*species* ) as different levels of random effects:
+
+$$
+z_{i} = \beta_{0} + a_{k[i]} + s_{k[i]} + \mu_{j[i]} + e_{i} + m_{i}, (19)
+$$
+Argument `random` in `rma.mv` have an elegant solution to construct random effects structure. For example, if we want to account for both study and species (taxonomic) effects, we need to supply them via argument `random` and use `list()` to bind all these clustering variables together: `random = list(~ 1 | species, ~ 1 | Study_ID, ~ 1 | ES_ID)`. The complete code will be:
+
+<pre class="code rsplus">
+rma.mv(yi = lnRR, 
+       V = VCV, 
+       random = list(~1 | species, # add species identity as a random effect, which allows effect sizes vary between species; 
+                     ~1 | Study_ID, # add study identity as a random effect, which allows effect sizes vary between studies; 
+                     ~1 | ES_ID), # add effect size as a random effect, which allows effect sizes vary within studies. 
+       method = "REML", 
+       test = "t", 
+       data = dat2_Midolo_2019
+      )
+</pre> 
+
+The output is: 
+```{r 4-level ML}
+mod_ML_lnRR_species <- rma.mv(yi = lnRR, 
+                              V = VCV, 
+                              random = list(~1 | species, # add species identity as a random effect, which allows effect sizes vary between species; 
+                                            ~1 | Study_ID, # add study identity as a random effect, which allows effect sizes vary between studies; 
+                                            ~1 | ES_ID), # add effect size as a random effect, which allows effect sizes vary within studies. 
+                             method = "REML", 
+                             test = "t", 
+                             data = dat2_Midolo_2019,
+                             sparse = TRUE
+                             )
+
+summary(mod_ML_lnRR_species)
+```
+
+We see that results given under **Variance Components** show variance components for each of 3 random effects, although there seems not heterogeneity between species. 
+
+**Note**
+
+According to our survey, only a few (XX%) environmental meta-analyses used multilevel model. Therefore, environmentalist may be not familiar with what is a 'random effect'? Many researchers have attempted to define it ( [see Andrew Gelman's nice summary](https://statmodeling.stat.columbia.edu/2005/01/25/why_i_dont_use/) ).  Here, we give an intuitive explanation in the context of a environmental meta-analysis: 
+
+> a variable being a random-effect means that it varies across different environmental stressors, measurement methods, species, and ecosysten types. When a variable in a meta-analytic model is modeled as a random-effect, we believe that it contributes noise (variation) to the overall mean and thus has a random effect on the overall mean. For example, treating species as a random effect is assuming the true effects are heterogeneous within species and enables us to quantify how much variation there is among species. Rather, treating species as a fixed effect means that species levels are identical across different studies and thus have a systematic effect on the overall effect; this is equivalent to ask: do one species responds more to an environmental stressor than others?). 
+
+- **select a 'best' random effects structure**
+
+Here, we introduce some recommended practices helping you decide a 'best' random effects structure to capture the hierarchical data structure (e.g., non-independence due to 'clustering', 'nesting', or 'crossing') you may have in your meta-analysis.
+
+**Rule 1** 
+
+Investing whether the variable being a random effect is a true sources of heterogeneity according to your knowledge in your field - we are against solely using data-driven random effects structure without considering whether the tested variable has true heterogeneity.
+
+**Rule 2** 
+
+A variable being a random effect should has levels > 5, such that the variance can be approximately unbiased estimated (@bolker2009generalized). 
+
+**Rule 3*** 
+
+Examining whether adding the variable can improve model quality, such as fit statistics (e.g., AIC and BIC), goodness-of-fit (e.g., $R^2_{marginal}$).
+
+Study (*Study_ID*) and effect size identities (*ES_ID*) are typical random effects for an environmental meta-analysis. Let's use @midolo2019global's dataset empirically test this point and show how to select 'best' random effects structure using information-theoretic approaches alongside likelihood ratio tests (implemented via function `anova.rma()`). There are three random effects candidates:
+
+(1) Effect size identity (*ES_ID*) - unique ID for each pairwise comparison for effect size calculation.
+
+(2) Study identity (*Study_ID*) - unique ID for each included primary study.
+
+(3) Species identity (*species*) - name of species included in the primary studies.
+
+Let's first fit a null model without including the above random effects candidates as the default reduced model:  
+
+<pre class="code rsplus">
+null.re <- rma.mv(yi = lnRR, 
+                  V = VCV, 
+                  method = "ML", # Setting method = "ML" rather than "REML" when conduct model selection.
+                  test = "t", 
+                  data = dat2_Midolo_2019
+                  )
+</pre>
+
+Then, add study identity (*Study_ID*) as a random effect via argument `random`:
+<pre class="code rsplus">
+study <- rma.mv(yi = lnRR, 
+                V = VCV, 
+                random = ~1 | Study_ID,  
+                method = "ML", 
+                test = "t", 
+                data = dat2_Midolo_2019
+                )
+</pre>
+
+Let's conduct a likelihood ratio test to compare the two fitted models' quality in terms of AIC, BIC, AICc, log-likelihood values:
+<pre class="code rsplus">
+anova.rma(null.re, study)
+</pre>
+
+```{r null vs. study}
+### fit a null model as default model
+null.re <- rma.mv(yi = lnRR, 
+                  V = VCV, 
+                  method = "ML", 
+                  test = "t", 
+                  data = dat2_Midolo_2019,
+                  sparse = TRUE
+                  )
+
+### add study ID as a random effect
+study <- rma.mv(yi = lnRR, 
+                V = VCV, 
+                random = ~1 | Study_ID,  
+                method = "ML", 
+                test = "t", 
+                data = dat2_Midolo_2019,
+                sparse = TRUE
+                )
+
+### compare using anova
+anova.rma(null.re,study)
+```
+
+We see that model (`Full`) with *Study_ID* as a random effect has a lower AIC value (34049.9293), in contrast to the null model (`Reduced`). The log-likelihood ratio test indicates that *Study_ID* significantly improve model fit (<code>LRT</code> = 8423.9068, <code>pval</code> = < 0.0001). Note that when we recommend to use maximum likelihood (ML) rather than restricted maximum likelihood (REML) when using information criteria, as using likelihood-based methods (and hence information criteria) to compare models having different fixed effects that are fitted by REML will generally have nonsense. This is an extremely point when doing model selection (see next section). If you are not able to understand, it does not matter. But important to remember to setting `methods = "ML"` rather than `methods = "REML"` when comparing models with different random effects (and also fixed effects; see next section).
+
+In the same vein, we can examine whether *ES_ID* contributes to model fit:  
+
+<pre class="code rsplus">
+es <- rma.mv(yi = lnRR, 
+             V = VCV, 
+             random = ~1 | ES_ID,  
+             method = "ML", 
+             test = "t", 
+             data = dat2_Midolo_2019
+             )
+</pre>
+
+<pre class="code rsplus">
+anova.rma(null.re, es)
+</pre>
+
+```{r null vs. es}
+### add ES ID as a random effect
+es <- rma.mv(yi = lnRR, 
+             V = VCV, 
+             random = ~1 | ES_ID,  
+             method = "ML", 
+             test = "t", 
+             data = dat2_Midolo_2019,
+             sparse = TRUE
+             )
+### compare two models
+anova.rma(null.re,es)
+```
+
+From `AIC`, `LRT` and `pval` given under the above output, we know that model with *ES_ID* as a random effect (`Full`) is much better than model with without random effect (`Reduced`). Therefore, effect size identity is an important random effect our model should account for.
+
+Next, lets compare whether a model with both *Study_ID* and *ES_ID* as random effects is better than a model with only *ES_ID* as a random effect:
+<pre class="code rsplus">
+study.es <- rma.mv(yi = lnRR, 
+                   V = VCV, 
+                   random = list(~1 | Study_ID,  
+                                 ~1 | ES_ID),  
+                   method = "ML", 
+                   test = "t", 
+                   data = dat2_Midolo_2019
+                   )
+</pre>
+
+<pre class="code rsplus">
+anova.rma(study.es, es)
+</pre>                
+
+```{r study.es vs. es}
+### add both study ID and ES ID as random effects
+study.es <- rma.mv(yi = lnRR, 
+                   V = VCV, 
+                   random = list(~1 | Study_ID,  
+                                 ~1 | ES_ID),  
+                   method = "ML", 
+                   test = "t", 
+                   data = dat2_Midolo_2019,
+                   sparse = TRUE
+                   )
+
+### compare two models
+anova.rma(study.es,es)
+```
+
+As expected, full model has a smaller AIC value than that of reduced model, indicating that model defining the nested random effects (i.e., accounting for non-independence) structure using  *Study_ID* and *ES_ID* has a better model fit (*Full*), compared to model ignoring non-independence (*Reduced*). 
+Next, lets' explore whether animal species identity is an important random effect. First add the coded variable *species* as a random effect term via argument `random`:   
+
+<pre class="code rsplus">
+species.study.es <- rma.mv(yi = lnRR, 
+                              V = VCV, 
+                              random = list(~1 | species,
+                                            ~1 | Study_ID,  
+                                            ~1 | ES_ID),  
+                             method = "ML", 
+                             test = "t", 
+                             data = dat2_Midolo_2019
+                             )
+</pre>
+
+<pre class="code rsplus">
+anova.rma(species.study.es,study.es)
+</pre>  
+
+```{r species.study.es vs. study.es}
+### add species ID as a random effect
+species.study.es <- rma.mv(yi = lnRR, 
+                              V = VCV, 
+                              random = list(~1 | species,
+                                            ~1 | Study_ID,  
+                                            ~1 | ES_ID),  
+                             method = "ML", 
+                             test = "t", 
+                             data = dat2_Midolo_2019,
+                             sparse = TRUE
+                             )
+### compare models
+anova.rma(species.study.es,study.es)
+```
+
+Looking at the above output, we see that adding species as a random effect does not change AIC value in this dataset. This suggests that intraspecific leaf traits are consistent across plant species; that this there is only a small amount of heterogeneity among species. This is easily corroborated when calculating $I^2$ at species level:
+
+```{r R2}
+i2_ml(species.study.es)
+```
+
+
+## Model selection and model-average inference
+
+As said in our main text, model selection is a powerful method to:
+
+- quantify the importance of moderators in explaining heterogeneity, which is useful when look for, for example, global drivers of environmental changes; 
+
+- multimodel inference, which can make model inferences about the moderators in the context of models with all possible combinations of moderators rather than a single 'best' model;
+
+- multimodel predictions, which can predict (average) effects of a moderator and its CIs based on models with all possible combinations of moderators rather than a single 'best' model.
+
+Below we show how to conduct model selection and multimodel inference using an information-theoretic approach (although $R^2$ based model selection is a reasonal option, it is not preferable here). To do so, `metafor` package needs to resort functionality from model-selection-dedicated packages like `MuMIn` and `glmulti`. We will use `MuMIn` package for illustration because the corresponding syntax is more straightforward and simpler than that of `glmulti`. Let's still use dataset of @midolo2019global. This dataset only have two moderators, *elevation* and *trait*, so we include their  interactions when illustrating. We would like to emphasize one point again - in your meta-analysis, you need to need to select your moderators based on their *priori* plausibility (predefined environmental questions you are going to address in your analyses) rather including many more moderators or removing them until you get a significant model. 
+
+- **Select best model**
+
+By 'best model', we mean the acceptable amount of information loss when we use a fitted model to approximate the real data generating mechanism. To select the best model, first, we need fit a multilevel multi-moderator meta-analytic model with all plausible moderators (Equation 19; full model). Then, dredge the full model to produce models with all possible combination of moderators added to the full model (note that you need to use maximum likelihood (ML) rather than restricted ML; see early section for explanation):
+
+<pre class="code rsplus">
+mod.full <- rma.mv(yi = lnRR, 
+                   V = lnRRV, 
+                   mods = ~ trait * elevation_log,
+                   random = list(~ 1 | Study_ID, ~ 1 | ES_ID), 
+                   method="ML", 
+                   test = "t",
+                   data = dat2_Midolo_2019) # fit Equation 19 - multilevel multi-moderator meta-analytic model (full model with all plausible moderators).
+
+eval(metafor:::.MuMIn) # use eval() function to extract helper functions from MuMIn and make them usable in metafor.
+
+mod.candidate <- dredge(mod.full, beta = "none", evaluate = TRUE, rank = "AICc", trace=2) # dredge to produce all possible models
+</pre>
+
+```{r MuMIn}
+############################################################################
+
+# fit full model with all plausible moderators (multilevel multi-moderator meta-analytic model; Equation 19)
+mod.full <- rma.mv(yi = lnRR, 
+                   V = lnRRV, 
+                   mods = ~ trait * elevation_log,
+                   random = list(~ 1 | Study_ID, ~ 1 | ES_ID), 
+                   method="ML", 
+                   test = "t", 
+                   data = dat2_Midolo_2019, 
+                   sparse = TRUE)
+
+# use eval() function to extract helper functions from MuMIn and make them usable in metafor
+eval(metafor:::.MuMIn)
+
+# produce a table containing all possible models
+mod.candidate <- dredge(mod.full, beta = "none", evaluate = TRUE, rank = "AICc", trace=2)
+```
+
+From **Table S7**, We see the fit statistics (log likelihood and AICc) from all possible models.
+
+**Table S7**
+Fit statistics of models with different combinations of moderators included in the full model (Equation 19 - multilevel multi-moderator meta-analytic model).
+```{r Table S7}
+# print all the possible models
+# print(mod.candidate, abbrev.names = FALSE) 
+mod.candidate %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
+                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
+                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+```
+
+Next step, let's select a sets of best model. This can be done by using thumb of rules, for example, delta AICc <= 2:
+
+<pre class="code rsplus">
+subset(mod.candidate, delta <= 2, recalc.weights = FALSE)
+</pre>
+
+```{r best model}
+# use delta AICc <= 2 as a threshold to select models with 'best' combination of moderators from 
+subset(mod.candidate, delta <= 2, recalc.weights = FALSE)
+```
+
+- **Model average**
+
+We also can make model inference based on model selection (as known as model average). You might still remember that in the early section, all model inference (test of model slopes, e.g., $\beta_1$) base the classic null hypothesis testing. The advantage of model average is that it can take into account the "weights" from each possible model. "Weights" is the "Akaike weights" that can be considered as the possibility that a specific model is has least information loss (see the above explanation). Put differently, you can treat weights as model probabilities. Note that this dataset is not a good example to illustrate model average because the weight in the first best model is almost 1 and that in other best models are 0 (look at the last column of Table S6). Unfortunately, we have very limited datasets form our survey due to the low data sharing rate in the environmental sciences. Anyway, the logic and syntax are the same:
+
+<pre class="code rsplus">
+summary(model.avg(mod.candidate))
+</pre>
+
+```{r model average}
+# multimodel inference
+summary(model.avg(mod.candidate))
+```
+
+The above output is showing all the estimates of model coefficients for moderators based on model average procedure. It is a typical format to show model estimates in `R`. The interpretation is quite easy. We also make a table (**Table S8**) showing results of model average based on `glmulti` for comparison. We see that the results are exactly the same.
+
+```{r glmulti, results='hide'}
+# write a custom function to fit models
+rma.glmulti <- function(formula, data, ...) {
+   rma.mv(formula, lnRRV,
+          random = list(~ 1 | Study_ID, ~ 1 | ES_ID),
+          data = data, test = "t", method="ML", sparse = TRUE, ...)
+}
+
+# fit all possible models
+mod.candidate2 <- glmulti(lnRR ~ trait + elevation_log, data = dat2_Midolo_2019, level = 2, marginality = TRUE, fitfunction = rma.glmulti,
+                crit="aicc", confsetsize = 5, plotty = FALSE) # set level=2 to examine the two-way interaction between the two  moderators; set marginality=TRUE the model with the interaction must include the two main effects
+
+# print  results
+print(mod.candidate2)
+
+# table with the information criteria for each model
+weightable(mod.candidate2)
+
+# multimodel inference
+eval(metafor:::.glmulti)
+round(coef(mod.candidate2, varweighting="Johnson"), 4)
+```
+
+**Table S8**
+The estimates of model slopes for moderators based on the model average inference method.
+```{r Table S8}
+# make a table to show model estimates
+t8 <- as.data.frame(coef(mod.candidate2, varweighting="Johnson"))
+t8 <- data.frame(Estimate=t8$Est, SE=sqrt(t8$Uncond),
+                  Importance=t8$Importance, row.names=row.names(t8))
+t8$z <- t8$Estimate / t8$SE
+t8$p <- 2*pnorm(abs(t8$z), lower.tail=FALSE)
+names(t8) <- c("Estimate", "Stadard error", "Importance", "z-value", "p-value")
+
+t8$ci.lb <- t8[[1]] - qnorm(.975) * t8[[2]]
+t8$ci.ub <- t8[[1]] + qnorm(.975) * t8[[2]]
+
+t8 <- t8[order(t8$Importance, decreasing=TRUE), c(1,2,4:7,3)]
+
+t8 <- round(t8[colnames(model.avg(mod.candidate)$coefficients),], 4) %>% as.data.frame() 
+colnames(t8) <- c("Estimate", "Stadard error", "z-value", "p-value", "Lower CI", "Upper CI", "Importantce")
+
+t8 %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
+                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
+                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+```
+
+
+## Scale dependence
+
+Scale dependence is a widespread issue in the field of environmental sciences. Yet, it rarely has been accounted for in the current practice of environmental meta-analysis. The issue of scale dependence arises when unite of replication is a patch or plot (e.g., 100 $cm^2$ or 1 $km^2$). The issue roots in the intricate relationship among replicates (sample size), plot size and sampling variance $\nu_i$, which leads to a complex covariation among the three. Basically, scale dependence will lead to biased estimates of sampling variance, which violates a basic assumption of meta-analysis; sampling variance is known because they (partially) serve as weights to average effect sizes across studies. 
+
+There are no established solutions on this issue. Incidentally, our team (Rebecca Spake) has a comprehensive simulation paper investigating the scale dependence in the context of meta-analytic model:
+
+> Spake R, Mori A S, Beckmann M, et al. Implications of scale dependence for cross‐study syntheses of biodiversity differences[J]. Ecology Letters, 2021, 24(2): 374-390.
+
+Based on the results of this paper and our experience, we give three practical and easy-to-implement suggestions to mitigate the issue of scale dependence: 
+
+- (1) use lnRR rather than SMD as the effect size statistic to increase the accuracy of effect size and sampling variance estimates in terms of measurement of biodiversity, richness rather or species density.
+
+- (2) conduct sensitivity analysis via, for example, fitting an unweighted model or using a different weighting scheme (e.g., weighting by an ordinal classification of study quality or non-parametric weighting) to get rid of the impact of inaccurate sampling variances; if using unweighted model, your dataset should be free of publication bias, otherwise you will get biased model coefficients
+
+- (3) code the size of plot as a moderator and use meta-regression to control for its covariate effects on other moderators effects 
+
+Unfortunately, our survey did not find any dataset have coded plot size as a moderator (*Plot.Size*). Therefore, we are unable to provide a corresponding illustration. But remember the implementation is straightforward - you just need to use `mods` argument in `rma.mv()` function and supply *Plot.Size* variable to the `mods` using a formula: `mods = ~ Plot.Size`. 
+
+## Advanced techniques {.tabset}
+
+There are other advanced meta-analytic techniques owing to contemporary methodological innovation, including meta-analysis of variation (see **Choosing an effect size statistic** section), meta-analysis of magnitude, interactive meta-analysis, multivariate meta-analytic model, network meta-analysis, and individual participants data meta-analysis (IPD meta-analysis). These methods are very new to environmental sciences and rarely used in the current practices of environmental meta-analysis. But harness the power of these advanced methods can help environmentalists reveal new insights, generate new hypotheses and improve parameter estimates and model inference.
+
+In this section, we illustrate the implementation (some) of these advanced methods where we have appropriate datasets from our survey, aiming to facilitate their applications in future environmental sciences. Unfortunately, we only have one appropriate dataset for illustration of implementation. For those advanced methods without respective datasets, we will add illustrations (with annotated code) when we find appropriate datasets in this field. 
+
+### Dataset introduction
+
+We will use data from meta-analysis by @burgess2021classifying on the effects of pairs of environmental stressors on population density of freshwater community - the interactive effects of two environmental stressors (see below for **Interactive meta-analysis** section). Let's load corresponding dataset:
+
+<pre class="code rsplus">
+dat_Burgess_2021 <- read_excel(here("data","Burgess_2021_Global Change Biology.xlsx"))
+</pre> 
+
+```{r load data2, cache = FALSE}
+### import dataset
+dat_Burgess_2021 <- read_excel(here("data","Burgess_2021_Global Change Biology.xlsx"))
+```
+
+As shown in **Table S9**, this dataset contains *N* =  `r length(unique(dat_Burgess_2021$First.Author))` primary studies and *k* = `r nrow(dat_Burgess_2021)` effect sizes. Through our early illustrations, we hope you can realize this dataset has the issue of statistical non-independence because one study, on average, contributes `r round(nrow(dat_Burgess_2021)/length(unique(dat_Burgess_2021$First.Author)),0)` effect sizes. So, multilevel model accounting for between-study ($\tau^2$) and within-study variation ($\sigma^2$) should be a default model for this meta-analysis (see details in **Two traditional models & a proposed practical model ** section).
+
+__Table S9__  
+The variables in the second worked example (@burgess2021classifying).
+```{r Table S9}
+### make a table
+t9 <- dat_Burgess_2021 %>% DT::datatable()
+t9
+```
+
+There are 17 variables included in this dataset. For easier illustration, we have a brief explanation of each of them:
+
+- First.Author: First Author of the paper from which data was extracted
+
+- Year: Year in which the paper from which data was extracted was published
+
+- Study_ID: Unique ID for the study group of organisms
+
+- Producer.Consumer: Whether the study group is a producer or a consumer
+
+- Interaction.Categories: The combination of stressor groups which acted upon the community
+
+- Control.Mean: Mean value for the control treatment
+
+- Control.SD: Standard deviation of the mean value for the control treatment
+
+- Control.Reps: Number of replicates for the control treatment
+
+- StressI.Mean: Mean value for the interaction treatment
+
+- StressI.SD: Standard deviation of the mean value for the interaction treatment
+
+- StressI.Reps: Number of replicates for the interaction treatment
+
+- Stress1.Mean: Mean value for the Stressor1 treatment
+
+- Stress1.SD: Standard deviation of the mean value for the Stressor1 treatment
+
+- Stress1.Reps: Number of replicates for the Stressor1 treatment
+
+- Stress2.Mean: Mean value for the Stressor2 treatment
+
+- Stress2.SD: Standard deviation of the mean value for the Stressor2 treatment
+
+- Stress2.Reps: Number of replicates for the Stressor2 treatment
+
+### Meta-analysis of variation
+
+Meta-analysis of variation is a (relative) newly developed technique that meta-analysing variance around the mean. The typical variance-based effect sizes are lnCVR and lnVR (see main text), which are unappreciated effect size statistics but have broad implications for environmental sciences.
+
+The implementation of meta-analysis of variation is quite straightforward. First we compute the point estimates of corresponding effect sizes, for example, lnCVR, and their sampling variances: 
+
+<pre class="code rsplus">
+lnCVR <- escalc(measure = "CVR",  # "CVR" means lnCVR is specified to be calculated; lnVR also can be chose if there is no mean-variance relationship
+                m1i = StressI.Mean, # mean of stressor 
+                m2i = Control.Mean, # mean of control
+                sd1i = StressI.SD, # standard deviation of mean stressor
+                sd2i = Control.SD, # standard deviation of control)
+                n1i = StressI.Reps, # sample size of stressor 
+                n2i = Control.Reps, # sample size of control
+                data = dat_Burgess_2021 # dataset containing the above information (here is the dataset of our second working example)
+                )
+colnames(lnCVR)[colnames(lnCVR) %in% c("yi", "vi")] <- c("lnCVR", "lnCVRV") # rename columns
+lnCVR <- na.omit(lnCVR, cols = c("lnCVR", "lnCVRV")) # clean NAs of effect sizes and sampling variances
+</pre> 
+
+```{r lnCVR, results='hide'}
+# compute lnCVR
+lnCVR <- escalc(measure = "CVR",  # "CVR" means lnCVR is specified to be calculated; lnVR also can be chose if there is no mean-variance relationship
+                m1i = StressI.Mean, # mean of stressor 
+                m2i = Control.Mean, # mean of control
+                sd1i = StressI.SD, # standard deviation of mean stressor
+                sd2i = Control.SD, # standard deviation of control)
+                n1i = StressI.Reps, # sample size of stressor 
+                n2i = Control.Reps, # sample size of control
+                data = dat_Burgess_2021 # dataset containing the above information (here is the dataset of our second working example)
+                )
+# rename columns
+colnames(lnCVR)[colnames(lnCVR) %in% c("yi", "vi")] <- c("lnCVR", "lnCVRV")
+
+# clean NAs of effect sizes and sampling variances
+lnCVR <- na.omit(lnCVR, cols = c("lnCVR", "lnCVRV"))
+```
+
+Then we use the multilevel model to fit them:
+<pre class="code rsplus">
+lnCVR$ES_ID <- rep("ES", nrow(lnCVR)) # add a unique ID for each observation
+lnCVR$ES_ID <- paste(lnCVR$ES_ID, c(1:nrow(lnCVR)), sep = "")
+mod_ML_lnCVR <- rma.mv(yi = lnCVR, 
+                       V = lnCVRV, 
+                       random = list(~1 | Study_ID, 
+                                     ~1 | ES_ID), 
+                       test = "t",
+                       method = "REML", 
+                       data = lnCVR,
+                       sparse = TRUE) # use Equation 3 to fit lnCVR
+</pre>
+
+The following is the output (we guess you can properly interpret each of the following element through our early section dedicated to results interpretation): 
+```{r MA of lnCVR}
+# add a unique ID for each observation
+lnCVR$ES_ID <- rep("ES", nrow(lnCVR))
+lnCVR$ES_ID <- paste(lnCVR$ES_ID, c(1:nrow(lnCVR)), sep = "")
+
+# use Equation 3 to fit lnCVR
+mod_ML_lnCVR <- rma.mv(yi = lnCVR, 
+                       V = lnCVRV, 
+                       random = list(~1 | Study_ID, 
+                                     ~1 | ES_ID), 
+                       test = "t",
+                       method = "REML", 
+                       data = lnCVR,
+                       sparse = TRUE)
+# summary
+summary(mod_ML_lnCVR)
+```
+
+One point worth noting that dispersion effect sizes (lnCVR or lnVR) should be meta-analysed along with central tendency effect sizes (lnRR or SMD). **Incidentally, we found that using a random effects model that ignores non-independence to fit the SMD for this dataset not only biases the overall effect size, but also its direction (Table S10).**
+
+```{r Table S10}
+# compute SMD
+SMD <- escalc(measure = "SMD",  
+              m1i = StressI.Mean, # mean of stressor 
+              m2i = Control.Mean, # mean of control
+              sd1i = StressI.SD, # standard deviation of mean stressor
+              sd2i = Control.SD, # standard deviation of control)
+              n1i = StressI.Reps, # sample size of stressor 
+              n2i = Control.Reps, # sample size of control
+              data = dat_Burgess_2021 # dataset containing the above information (here is the dataset of our second working example)
+                )
+# rename columns
+colnames(SMD)[colnames(SMD) %in% c("yi", "vi")] <- c("SMD", "SMDV")
+
+# fit random effects model (Equation 2)
+mod_RE_SMD <- rma(yi = SMD,  vi = SMDV, method = "REML", data = SMD)
+
+# add a unique ID for each observation
+SMD$ES_ID <- rep("ES", nrow(SMD))
+SMD$ES_ID <- paste(SMD$ES_ID, c(1:nrow(SMD)), sep = "")
+
+# fit multilevel model (Equation 3)
+mod_ML_SMD <- rma.mv(yi = SMD, 
+                     V = SMDV, 
+                     random = list(~1 | Study_ID, 
+                                   ~1 | ES_ID), 
+                     test = "t",
+                     method = "REML", 
+                     data = SMD,
+                     sparse = TRUE)
+
+# make a table to compare results from random effects model and multilevel model
+t10 <- data.frame("Overall effect (pooled SMD)" = c(round(mod_RE_SMD$b[1],2), round(mod_ML_SMD$b[1],2)),
+             "Standard error" = c(round(mod_RE_SMD$se,2), round(mod_ML_SMD$se,2)),
+             "p-value" = c(round(mod_RE_SMD$pval,4), round(mod_ML_SMD$pval,3)),
+             "Lower CI" = c(round(mod_RE_SMD$ci.lb,2), round(mod_ML_SMD$ci.lb,2)),
+             "Upper CI" = c(round(mod_RE_SMD$ci.ub,2), round(mod_ML_SMD$ci.ub,2)),
+             "Between-study variance" = c(round(mod_RE_SMD$tau2,3), round(mod_ML_SMD$sigma2[1],3)),
+             "Within-study variance" = c(0, round(mod_ML_SMD$sigma2[2],3)),
+             "Between-study I2" = c(round(mod_RE_SMD$I2,2),round(i2_ml(mod_ML_SMD)[[2]],2)),
+             "Within-study I2" = c(0,round(i2_ml(mod_ML_SMD)[[3]],2)))
+
+colnames(t10) <- c("Overall effect (pooled SMD)", "Standard error", "p-value", "Lower CI", "Upper CI", "Between-study variance", "Within-study variance", "Between-study heterogeneity I2 (%)", "Within-study heterogeneity I2 (%)")
+
+t10_2 <- t(t10) %>% as.data.frame()
+colnames(t10_2) <- c("Random-effect model", "Multi-level model")
+
+t10_2 %>% DT::datatable()
+```
+
+
+### Meta-analysis of magnitude
+
+A typical environmental meta-analysis may aim to examine whether an environmental stressor exert a negative effect on some aspects of a individual or environmental system. Some environmentalists may have interests in the average magnitudes (absolute values) of some environmental phenomena regardless of their directionality. For example, for some measurements, positive values represent the negative effect of a environmental stressor, while for others, negative values represent the negative effect. In such a case, the absolute values of the measurement are our focal interest. Meta-analysis of magnitude is the technique that can properly estimate the average magnitude of a phenomenon across studies. 
+
+As a result of taking the absolute values, the probability density on the left side (x-axis < 0) X-axis will be folded to the right side. Therefore,  absolute values follow a ‘folded’ (normal) distribution[s]. Then the folded mean and variance can be derived from the folded distribution [formulas see Wikipedia](https://en.wikipedia.org/wiki/Folded_normal_distribution#:~:text=The%20folded%20normal%20distribution%20is%20a%20probability%20distribution,some%20variable%20is%20recorded%2C%20but%20not%20its%20sign.). Note that the mean and variance of a folded distribution are not simple average of absolute mean and variance. The basic steps of meta-analysis of magnitude are compute the folded mean and variance and meta-analyse them using a proper models (usually a multilevel model we proposed in our main text). Below, we use dataset from @burgess2021classifying to show corresponding implementation.
+
+We can compute mean and variance from a folded distribution with:
+<pre class="code rsplus">
+folded_val <- data.frame(SMD_folded = with(SMD, folded_es(mean = SMD, variance = SMDV)), SMDV_folded = with(SMD, folded_var(mean = SMD, variance = SMDV))) # compute the folded mean and variance using custom functions folded_es() and folded_var
+</pre>
+
+```{r folded es}
+# compute the folded mean and variance using custom functions folded_es() and folded_var
+folded_val <- data.frame(SMD_folded = with(SMD, folded_es(mean = SMD, variance = SMDV)), SMDV_folded = with(SMD, folded_var(mean = SMD, variance = SMDV))) 
+```
+
+Then, the folded effect sizes and variances can be meta-analysed by a multilevel model:
+<pre class="code rsplus">
+SMD_folded <- bind_cols(SMD, folded_val) # combine it to dataset
+rma.mv(yi = SMD_folded, 
+       V = SMDV_folded, 
+       random = list(~1 | Study_ID, ~1 | ES_ID), 
+       test = "t",
+       method = "REML", 
+       data = SMD_folded,
+       sparse = TRUE) # fit multilevel model (Equation 3)
+</pre>
+```{r MA of magnitude}
+# combine it to dataset
+SMD_folded <- bind_cols(SMD, folded_val)
+# fit multilevel model (Equation 3)
+rma.mv(yi = SMD_folded, 
+       V = SMDV_folded, 
+       random = list(~1 | Study_ID, ~1 | ES_ID), 
+       test = "t",
+       method = "REML", 
+       data = SMD_folded,
+       sparse = TRUE)
+```
+
+### Interactive meta-analysis
+
+Interactive meta-analysis is a technique dedicated to synthesize the interaction effect of, usually, 2-by-2 factorial design. The most typical scenario of the application of this new technique is examining the effect of two simultaneous environmental stressors, generating intuitive understanding of how environmental stressors interact to affect individuals, populations, environments.
+
+Please note that interactive meta-analysis is different from the interaction between two moderators, which denotes whether the moderating effect of one moderator is contingent upon the value of another moderator. Interaction between two moderators can be easily examined via the multiple meta-regression model we proposed in the main text. From the prospective of implementation, set `mods = ~ mod1*mod2` will tell `rma.mv()` to include interaction term in the multiple meta-regression model.
+
+For the interactive meta-analysis we proposed here, there are two null models can be implemented:
+
+- **additive null model** based on effect sizes like  SMD,
+
+- **multiplicative null model** based on effects size like lnRR, lnVR and lnCVR.
+
+For each null model, three stressor interaction types can be examined:
+
+- **null**, including three sub-types: **dominance**, **multiplicative** and **additive**
+
+- **synergy**
+
+- **antagonism**
+
+As we are working on an independent paper on interactive meta-analysis, we only show a simple example here (after we publish the working paper, we will supplement more complex illustration). We will implement multiplicative null model. First, we use custom function (`interactive_es()`) to calculate a set of effect sizes quantifying the main effects (of stressors 1 and 2, respectively) and interactive effects of interest:
+
+<pre class="code rsplus">
+interactive_val <- with(dat_Burgess_2021, mapply(interactive_es, 
+                      CC_n = Control.Reps,
+                      CC_mean = Control.Mean, 
+                      CC_SD = Control.SD,
+                      EC_n = Stress1.Reps, 
+                      EC_mean = Stress1.Mean, 
+                      EC_SD = Stress1.SD,
+                      CS_n = Stress2.Reps, 
+                      CS_mean = Stress2.Mean, 
+                      CS_SD = Stress2.SD,
+                      ES_n = StressI.Reps, 
+                      ES_mean = Stress1.Mean, 
+                      ES_SD = StressI.SD,
+                      SIMPLIFY = FALSE)) # calculate a set of effect sizes
+interactive_val <- map_dfr(interactive_val, function(x) I(x)) # turn from list into the tibble format
+interactive_val2 <- bind_cols(dat_Burgess_2021, interactive_val) # add effect sizes as columns
+interactive_val2$lnRR_ES[325] <- median(interactive_val2$lnRR_ES[-325]) # we do not know why -  325th of lnRR_ES is still Inf albeit after na.omit(); we have to replace Inf with the median value
+interactive_val2$lnRRV_ES[325] <- median(interactive_val2$lnRRV_ES[-325]) # same issue as above
+interactive_val2 <- interactive_val2[interactive_val2$lnRRV_E < 100 & interactive_val2$lnRRV_S < 100 & interactive_val2$lnRRV_ES < 100,] # there seem many  usual sampling variances (a visual check: interactive_val2$lnRRV_ES), so we decide to delete them
+</pre>
+
+```{r interactive es}
+# calculate a set of effect sizes
+interactive_val <- with(dat_Burgess_2021, mapply(interactive_es, 
+                      CC_n = Control.Reps,
+                      CC_mean = Control.Mean, 
+                      CC_SD = Control.SD,
+                      EC_n = Stress1.Reps, 
+                      EC_mean = Stress1.Mean, 
+                      EC_SD = Stress1.SD,
+                      CS_n = Stress2.Reps, 
+                      CS_mean = Stress2.Mean, 
+                      CS_SD = Stress2.SD,
+                      ES_n = StressI.Reps, 
+                      ES_mean = Stress1.Mean, 
+                      ES_SD = StressI.SD,
+                      SIMPLIFY = FALSE)) # set SIMPLIFY = FALSE, otherwise a list of matrices rather than vectors are returned
+# turn from list into the tibble format
+interactive_val <- map_dfr(interactive_val, function(x) I(x))
+# add effect sizes as columns
+interactive_val2 <- bind_cols(dat_Burgess_2021, interactive_val)
+# delete NA
+interactive_val2 <- na.omit(interactive_val2, cols = names(interactive_val))
+interactive_val2$lnRR_ES[325] <- median(interactive_val2$lnRR_ES[-325]) # we do not know why -  325th of lnRR_ES is still Inf albeit after na.omit(); we have to replace Inf with the median value
+interactive_val2$lnRRV_ES[325] <- median(interactive_val2$lnRRV_ES[-325]) # same issue as above
+
+# there seem many  usual sampling variances (a visual check: interactive_val2$lnRRV_ES), so we decide to delete them
+interactive_val2 <- interactive_val2[interactive_val2$lnRRV_E < 100 & interactive_val2$lnRRV_S < 100 & interactive_val2$lnRRV_ES < 100, ]
+```
+
+The main effect of the stressor 1 can be meta-analysed by a multilevel model:
+
+```{r MA of main effect 1}
+# fit multilevel model (Equation 3)
+# add a unique ID for each observation
+interactive_val2$ES_ID <- 1:nrow(interactive_val2)
+rma.mv(yi = lnRR_E, 
+       V = lnRRV_E, 
+       random = list(~1 | Study_ID, ~1 | ES_ID), 
+       test = "t",
+       method = "REML", 
+       data = interactive_val2,
+       sparse = TRUE)
+```
+
+The main effect of the stressor 2 can be meta-analysed by a multilevel model:
+
+```{r MA of main effect 2}
+# fit multilevel model (Equation 3)
+rma.mv(yi = lnRR_S, 
+       V = lnRRV_S, 
+       random = list(~1 | Study_ID, ~1 | ES_ID), 
+       test = "t",
+       method = "REML", 
+       data = interactive_val2,
+       sparse = TRUE)
+```
+
+The interactive effect of the stressor 1 and stressor 2 can be meta-analysed by a multilevel model:
+
+```{r MA of interactive effect}
+# fit multilevel model (Equation 3)
+rma.mv(yi = lnRR_ES, 
+       V = lnRRV_ES, 
+       random = list(~1 | Study_ID, ~1 | ES_ID), 
+       test = "t",
+       method = "REML", 
+       data = interactive_val2,
+       sparse = TRUE)
+```
+
+
+### Multivariate meta-analytic moel
+
+A multivariate model where one can model two or more different types of effect sizes with the estimation of pair-wise correlations between different effect sizes. The benefit of such an approach is known as the ‘borrowing of strength’. The multivariate model can estimate the correlation between different types of effect sizes, which is a focal parameter in many environmental meta-analyses. Here, we only touch a bit on the technicalities use a real-data example (it deserves an independent paper to show its usefulness in environmental sciences). 
+
+The multivariate model also can be used to account for statistical non-independence. Technically speaking, multilevel model and multivariate model with a compound symmetric structure of random effect's variance-covariance matrix are roughly identical if different types of effect sizes has a postie relationship (correlation coefficient > 0). Below, we will show how to fit a multivariate model and compare the model estimates to that of multilevel model. We use the above fitted lnCVR as an example:
+<pre class="code rsplus">
+mod_MV_lnCVR <- rma.mv(yi = lnCVR, 
+                       V = lnCVRV, 
+                       random = ~ ES_ID | Study_ID,
+                       struct = "CS",
+                       test = "t",
+                       method = "REML", 
+                       data = lnCVR,
+                       sparse = TRUE) # fit a multivariate model to lnCVR
+</pre>
+```{r multivariate model}
+# fit a multivariate model to lnCVR
+mod_MV_lnCVR <- rma.mv(yi = lnCVR, 
+                       V = lnCVRV, 
+                       random = ~ ES_ID | Study_ID,
+                       struct = "CS",
+                       test = "t",
+                       method = "REML", 
+                       data = lnCVR,
+                       sparse = TRUE)
+# summary
+summary(mod_MV_lnCVR)
+```
+
+We can see model coefficients and 95% CIs are identical between multilevel model (objective `mod_ML_lnCVR`) and multivariate model with a compound symmetric structure (objective `mod_MV_lnCVR`). The total heterogeneity in true effect (`tau^2` = 0.3088 under output of objective `mod_MV_lnCVR`) in the multivariate model is the same with that of multilevel model (the sum of `sigma^2.1` [$\tau^2$] and `sigma^2.2` [$\sigma^2$]). Both model indicate that the true effects within studies have a strong correlation: `rho` under the multivariate model and the ICC ($ICC = \frac {\tau^2} {\tau^ + \sigma^2}$) calculated from the multilevel model.
+
+`rho` under the multivariate model:
+<pre class="code rsplus">
+mod_MV_lnCVR$rho
+</pre>
+
+```{r rho of lnCVR}
+# rho from multivariate model
+mod_MV_lnCVR$rho
+```
+
+ICC ($ICC = \frac {\tau^2} {\tau^ + \sigma^2}$) calculated from the multilevel model:
+<pre class="code rsplus">
+mod_ML_lnCVR$sigma2[1] / sum(mod_ML_lnCVR$sigma2)
+</pre>
+
+```{r ICC of lnCVR}
+# calculate ICC from the fitted multilevel model
+mod_ML_lnCVR$sigma2[1] / sum(mod_ML_lnCVR$sigma2)
+```
+
+The values of log likelihood and statistics representing model fitting also the same as each other:
+<pre class="code rsplus">
+fitstats(mod_ML_lnCVR, mod_MV_lnCVR)
+</pre>
+
+**Table S11**
+Comparison between multilevel and multivariate model in terms of log likelihood and fit statistics.
+```{r Table S11}
+# compare the logLik and AIC et al.
+t11 <- round(fitstats(mod_ML_lnCVR, mod_MV_lnCVR), 4) 
+colnames(t11) <- c("Multilevel model", "Multivariate model")
+t11 %>% DT::datatable()
+```
+
+### Network meta-analysis
+
+Network meta-analysis is a technique to compare the effectiveness of different treatments, which is a useful method in medical sciences. In the context of environmental sciences, network meta-analysis can be used to rank the effects of different environmental stressors in terms of a same phenomenon of interest. This will be a quite useful technique in future research syntheses because there are more and more multiple stressors studies in environmental sciences. Some readers might think meta-regression illustrated early also can compare the treatment effects of different environmental stressors. If you think so, we would like to say congratulations to you because you really understand the usefulness of meta-regression which are often neglected by many researchers (who heavily rely on subgroup analysis or separate analysis). However, meta-regression only works for direct comparison of treatments, while will be at a loss what to do with indirect comparison of treatments. Network meta-analysis can figure out both direct and indirect comparison of treatments. We will update the illustration of this technique once we access appropriate datasets.
+
+### IPD meta-analysis 
+
+The idea of IPD meta-analysis is to directly model raw data from 'individuals' (e.g., the observational level unit like each animal, plant or plot). There are two approaches for IPD meta-analysis: (1) one-step method, which models raw data using one complex multilevel (hierarchical) model, (2) two-step method - which calculates summary statistics for each primary study and meta-analyze the them. We note that both methods will usually give the same results. We will update the illustration of this useful method when we come across appropriate datasets in this field. 
