@@ -1,7 +1,7 @@
 ---
 title: "Quantitative synthesis: a practical guide on meta-analysis, meta-regression, and publication bias tests for environmental sciences"
 subtitle: "A step-by-step tutorial (implementation) along with theoretical explanation"
-author: "Shinichi Nakagawa1, Yefeng Yang, Erin Macartney, Rebecca Spake, and Malgorzata Lagisz"
+author: "Shinichi Nakagawa, Yefeng Yang, Erin Macartney, Rebecca Spake, and Malgorzata Lagisz"
 date: "last update Oct 2022"
 output:
 #  rmdformats::readthedown: 
@@ -28,7 +28,7 @@ link-citations: yes
 
 # Preface
 
-This is a step-by-step tutorial, which is a supplement to our methodological guideline paper published in [Environmental Evidence](https://environmentalevidencejournal.biomedcentral.com/) (the official journal of the [Collaboration for Environmental Evidence (CEE)](https://environmentalevidence.org/)). This tutorial has three 
+This is a step-by-step tutorial, which is a supplement to our methodological guideline paper published in [Environmental Evidence](https://environmentalevidencejournal.biomedcentral.com/) (the official journal of the [Collaboration for Environmental Evidence (CEE)](https://environmentalevidence.org/)). 
 
 This tutorial has 5 features.
 
@@ -78,7 +78,7 @@ The first software you need to install is `R` ([download](https://cran.r-project
 After installation of `R` done, install all the necessary packages. If the packages are archived in CRAN, you will need to use `install.packages()` to install them. For example, for the main package we used - `metafor`, execute `install.packages("metafor")` in the console (bottom left pane of `R Studio`). For packages archived in Github repositories, use `devtools::install_github()` for installation.
 
 Package list:
-`tidyverse`, `here`, `DT`, `readxl`, `metafor`, `clubSandwich`, `orchaRd`, `MuMIn`, `glmulti`, `metagear`,`stringr`, `mice`,`GoodmanKruskal`,`ggplot2`, `plotly`, `ggthemr`, `cowplot`,`grDevices`,`grid`, `gridGraphics`, `pander`, `formatR`
+`tidyverse`, `here`, `DT`, `readxl`, `metafor`, `clubSandwich`, `orchaRd`, `MuMIn`, `glmulti`, `metagear`,`stringr`, `mice`,`GoodmanKruskal`,`ggplot2`, `plotly`, `ggthemr`, `cowplot`,`grDevices`,`grid`, `gridGraphics`, `pander`, `formatR`.
 
 You may want to install it while having a cup of coffee because this might take a bit time to finish. 
 
@@ -2740,3 +2740,15 @@ Network meta-analysis is a technique to compare the effectiveness of different t
 ### IPD meta-analysis 
 
 The idea of IPD meta-analysis is to directly model raw data from 'individuals' (e.g., the observational level unit like each animal, plant or plot). There are two approaches for IPD meta-analysis: (1) one-step method, which models raw data using one complex multilevel (hierarchical) model, (2) two-step method - which calculates summary statistics for each primary study and meta-analyze the them. We note that both methods will usually give the same results. We will update the illustration of this useful method when we come across appropriate datasets in this field. 
+
+# License  
+
+This documented is licensed under the following license: [CC Attribution-Noncommercial-Share Alike 4.0 International](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en).  
+
+# Software and package versions  
+
+```{r}
+sessionInfo() %>% pander()
+```
+
+# References  
