@@ -1,7 +1,7 @@
 ---
-title: "Quantitative synthesis: a practical guide on meta-analysis, meta-regression, and publication bias tests for environmental sciences "
+title: "Quantitative synthesis: a practical guide on meta-analysis, meta-regression, and publication bias tests for environmental sciences"
 subtitle: "A step-by-step tutorial (implementation) along with theoretical explanation"
-author: "Yefeng Yang, Malgorzata Lagisz, Shinichi Nakagawa"
+author: "Shinichi Nakagawa1, Yefeng Yang, Erin Macartney, Rebecca Spake, and Malgorzata Lagisz"
 date: "last update Oct 2022"
 output:
 #  rmdformats::readthedown: 
@@ -21,17 +21,38 @@ output:
     as_is: true 
 editor_options:
   chunk_output_type: console
-#bibliography: "ref/references.bib"
-# biblio-style: "apalike"
-#csl: "./ref/neuroscience-and-biobehavioral-reviews.csl"
+bibliography: "references.bib"
+csl: "environmental-evidence.csl"
 link-citations: yes  
 ---
 
 # Preface
 
+This is a step-by-step tutorial, which is a supplement to our methodological guideline paper published in [Environmental Evidence](https://environmentalevidencejournal.biomedcentral.com/) (the official journal of the [Collaboration for Environmental Evidence (CEE)](https://environmentalevidence.org/)). This tutorial has three 
+
+This tutorial has 5 features.
+
+- It suits many types of readers who have interests and want to learn meta-analytic techniques, from beginners to senior researchers who might already conducted lots of meta-analyses in environmental sciences.
+
+- It can help meta-analysts in many disciplines, albeit the main targets are environmental researchers and we put all technical details in the context of the environmental sciences.
+
+- The illustrative implementation of each method is along with the details in the math, statistical theory, and explanations (more details see main text); in this way, readers can can transfer these methods to the statistical software (e.g., `Python`, `Stata`) with which they are familiar (yes - not necessarily `R`).
+
+- All scripts are well annotated and corresponding outputs are well interpreted.
+
+- We will update this tutorial when necessary. Reader can access the latest version in our [GitHub repository](https://github.com/itchyshin/Meta-analysis_tutorial) 
+
+# Credit
+
 We acknowledge that this online tutorial has borrowed some ideas and code from published papers in Prof. Shinichi Nakagawa's lab ([see full publication list](http://www.i-deel.org/publications.html)) and from  (Associate) Prof. Wolfgang Viechtbauer's versatile `R` package `metafor` ([see the documentation](https://wviechtb.github.io/metafor/), [GitHub page](https://github.com/cran/metafor), and [package webpage](https://www.metafor-project.org/)). 
 
 We thanks the the two groups for their good lab culture of Open Science and their advocate of Open Science practices. We also call for more Open Science practices in the environmental sciences, for example, data sharing, code sharing, transparent reporting and open archiving, to make the field more **open**, **reliable**, and **transparent**.
+
+# Citation
+
+If our paper and tutorial have helped you a little bit, please cite the following paper:
+
+> Shinichi Nakagawa, Yefeng Yang, Erin Macartney, Rebecca Spake, and Malgorzata Lagisz. Quantitative synthesis: a practical guide on meta-analysis, meta-regression, and publication bias tests for environmental sciences. Environmental Evidence, 2022. 
 
 ```{r global options, include=FALSE}
 library(knitr)
@@ -48,10 +69,18 @@ opts_knit$set(width = 75)
 
 ```
 
+#  Setup `R` in your computer
 
-# Loading packages
+Our illustrations are based on already available, existing software. So you will need to (freely) download them to let you smoothly follow all illustrations. 
 
-Load the necessary `R` packages for data manipulation, visualizations and model implementation. Note that if your <code>R</code> does not have the following packages, we need to install them by using `install.packages()` for CRAN packages or `devtools::install_github()` for those archived on github repositories: `tidyverse`, `knitr`, `DT`, `readxl`, `metafor`, `clubSandwich`, `orchaRd`, `MuMIn`, `patchwork`, `GoodmanKruskal`, `networkD3`, `ggplot2`, `ggsignif`, `visdat`, `ggalluvial`, `ggthemr`, `cowplot`, `grDevices`, `png`, `grid`, `gridGraphics`, `pander`, `formatR`, `rmdformats`.
+The first software you need to install is `R` ([download](https://cran.r-project.org/)) if you have not had it in your computer before . The second is `RStudio` ([download](https://rstudio.com/products/rstudio/)), which can make you have a good experience of using `R`. But `RStudio` is not necessary.
+
+After installation of `R` done, install all the necessary packages. If the packages are archived in CRAN, you will need to use `install.packages()` to install them. For example, for the main package we used - `metafor`, execute `install.packages("metafor")` in the console (bottom left pane of `R Studio`). For packages archived in Github repositories, use `devtools::install_github()` for installation.
+
+Package list:
+`tidyverse`, `here`, `DT`, `readxl`, `metafor`, `clubSandwich`, `orchaRd`, `MuMIn`, `glmulti`, `metagear`,`stringr`, `mice`,`GoodmanKruskal`,`ggplot2`, `plotly`, `ggthemr`, `cowplot`,`grDevices`,`grid`, `gridGraphics`, `pander`, `formatR`
+
+You may want to install it while having a cup of coffee because this might take a bit time to finish. 
 
 ```{r load packages, cache = FALSE}
 pacman::p_load(tidyverse, 
@@ -84,11 +113,12 @@ pacman::p_load(tidyverse,
                pander,
                formatR
                )
-
-
 ```
 
 # Load custom functions
+
+We also write some helper functions that can assist the illustrations. Past the source code (included in custom_func.R) into the console, and hit "Enter" to let `R` "learn" these custom functions
+
 ```{r custom functions}
 ############################################################################
 #' @title cv_avg
@@ -319,7 +349,6 @@ estimates.model <- function(model){
 ############################################################################
 
 ```
-
 
 # Choosing an effect size statistic {.tabset} 
 
@@ -1440,10 +1469,7 @@ colnames(t4) <- c("Overall effect", "Standard error", "p-value", "Lower CI", "Up
 t4_2 <- t(t4) %>% as.data.frame()
 colnames(t4_2) <- c("Original estimate", "Bias-corrected estimate")
 
-#t4_2 %>% DT::datatable()
-t4_2 %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
-                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
-                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+t4_2 %>% DT::datatable()
 ```
 
 
@@ -1550,9 +1576,6 @@ t5 <- data.frame(rho  = rho_range,
 colnames(t5) <- c("Correlation (ρ)", "Overall effect", "Standard error", "p-value", "Lower CI", "Upper CI")
 
 t5 %>% DT::datatable() # kable(digits=c(1,3,3,4,3,3))
-t5 %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
-                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
-                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
 ```
 
 
@@ -1918,10 +1941,7 @@ colnames(t6) <- c("Overall effect", "Standard error", "p-value", "Lower CI", "Up
 t6_2 <- t(t6) %>% as.data.frame()
 colnames(t6_2) <- c("Complete dataset", "Simple imputation method", "Improved imputation method")
 
-# t6_2 %>% DT::datatable()
-t6_2 %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
-                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
-                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+t6_2 %>% DT::datatable()
 ```
 
 
@@ -1982,9 +2002,9 @@ Investing whether the variable being a random effect is a true sources of hetero
 
 **Rule 2** 
 
-A variable being a random effect should has levels > 5, such that the variance can be approximately unbiased estimated (@bolker2009generalized). 
+A variable being a random effect should has levels > 5, such that the variance can be approximately unbiased estimated. 
 
-**Rule 3*** 
+**Rule 3** 
 
 Examining whether adding the variable can improve model quality, such as fit statistics (e.g., AIC and BIC), goodness-of-fit (e.g., $R^2_{marginal}$).
 
@@ -2212,9 +2232,7 @@ Fit statistics of models with different combinations of moderators included in t
 ```{r Table S7}
 # print all the possible models
 # print(mod.candidate, abbrev.names = FALSE) 
-mod.candidate %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
-                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
-                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+mod.candidate %>% DT::datatable()
 ```
 
 Next step, let's select a sets of best model. This can be done by using thumb of rules, for example, delta AICc <= 2:
@@ -2285,9 +2303,7 @@ t8 <- t8[order(t8$Importance, decreasing=TRUE), c(1,2,4:7,3)]
 t8 <- round(t8[colnames(model.avg(mod.candidate)$coefficients),], 4) %>% as.data.frame() 
 colnames(t8) <- c("Estimate", "Stadard error", "z-value", "p-value", "Lower CI", "Upper CI", "Importantce")
 
-t8 %>% ggtexttable(theme = ttheme(colnames.style = colnames_style(color = "white", fill = "#8cc257"),
-                                    rownames.style = colnames_style(color = "white", fill = "#8cc257", face = "bold"),
-                                    tbody.style = tbody_style(color = "black", fill = c("#e8f3de", "#d3e8bb"))))
+t8 %>% DT::datatable()
 ```
 
 
@@ -2335,7 +2351,6 @@ The variables in the second worked example (@burgess2021classifying).
 ```{r Table S9}
 ### make a table
 t9 <- dat_Burgess_2021 %>% DT::datatable()
-t9
 ```
 
 There are 17 variables included in this dataset. For easier illustration, we have a brief explanation of each of them:
@@ -2655,9 +2670,9 @@ rma.mv(yi = lnRR_ES,
 
 ### Multivariate meta-analytic moel
 
-A multivariate model where one can model two or more different types of effect sizes with the estimation of pair-wise correlations between different effect sizes. The benefit of such an approach is known as the ‘borrowing of strength’. The multivariate model can estimate the correlation between different types of effect sizes, which is a focal parameter in many environmental meta-analyses. Here, we only touch a bit on the technicalities use a real-data example (it deserves an independent paper to show its usefulness in environmental sciences). 
+A multivariate model where one can model two or more different types of response variables/outcomes with the estimation of pair-wise correlations between different effect sizes. The benefit of such an approach is known as the ‘borrowing of strength’. The multivariate model can estimate the correlation between different types of effect sizes, which is a focal parameter in many environmental meta-analyses. Here, we only touch a bit on the technicalities use a real-data example (it deserves an independent paper to show its usefulness in environmental sciences). 
 
-The multivariate model also can be used to account for statistical non-independence. Technically speaking, multilevel model and multivariate model with a compound symmetric structure of random effect's variance-covariance matrix are roughly identical if different types of effect sizes has a postie relationship (correlation coefficient > 0). Below, we will show how to fit a multivariate model and compare the model estimates to that of multilevel model. We use the above fitted lnCVR as an example:
+The multivariate model also can be used to account for statistical non-independence. Technically speaking, multilevel model and multivariate model with a compound symmetric structure of random effect's variance-covariance matrix are roughly identical if different types of effect sizes has a postie relationship (correlation coefficient > 0). Below, we will show how to fit a multivariate model and compare the model estimates to that of multilevel model. We use the above fitted lnCVR as an example (strictly speaking, below is a multivariate parameterization of the model because we do not distinguish different types of effect sizes):
 <pre class="code rsplus">
 mod_MV_lnCVR <- rma.mv(yi = lnCVR, 
                        V = lnCVRV, 
