@@ -7,7 +7,7 @@ This is a step-by-step tutorial, which is a supplement to our methodological gui
 
 ### Intended audience:
 
-- Our target audience is broad, and includes beginners to senior researchers who might have already conducted meta-analyses in environmental sciences.
+- Our target audience is broad, and includes beginners and students to senior researchers who might have already conducted meta-analyses in environmental sciences.
 
 - While the material covered is mostly relevant to researchers from environmental sciences, the tutorial should be accessible to meta-analysts from other disciplines.
 
