@@ -213,7 +213,7 @@ mr4 <- rma.mv(yi = lnRR,
 pdf(NULL)
 dev.control(displaylist="enable")
 funnel(ma_short2, yaxis = "seinv",
-       level=c(90, 95, 99), shade=c("white", "gray55", "gray75"), refline=0, #legend=TRUE,
+       #level=c(90, 95, 99), shade=c("white", "gray55", "gray75"), refline=0, #legend=TRUE,
       xlab = "Model residuals of lnRR (log response ratio)")
 A <- recordPlot()
 invisible(dev.off())
@@ -224,7 +224,7 @@ B <- bubble_plot(mr3, mod = "ess.se",
                  group = "Study_ID", 
                  data = dat, 
                  ylab = "lnRR (log response ratio)", 
-                 xlab = "Sampling standard error (SE)", 
+                 xlab = "Square root of 'effective sample size'", 
                  g = TRUE,
                  legend.pos = "bottom.left")  
 
