@@ -3,7 +3,7 @@
 
 ## Preface
 
-This is a step-by-step tutorial, which is a supplement to our methodological guideline paper published in [Environmental Evidence](https://environmentalevidencejournal.biomedcentral.com/) (the official journal of the [Collaboration for Environmental Evidence (CEE)](https://environmentalevidence.org/)).
+This is a step-by-step tutorial, which is a supplement to our methodological guideline paper written for [Environmental Evidence](https://environmentalevidencejournal.biomedcentral.com/) (the official journal of the [Collaboration for Environmental Evidence (CEE)](https://environmentalevidence.org/)).
 
 ### Intended audience:
 
