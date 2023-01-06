@@ -26,6 +26,14 @@ csl: "environmental-evidence.csl"
 link-citations: yes  
 ---
 
+# Contributors
+
+Shinichi Nakagawa, Yefeng Yang, Erin Macartney, Rebecca Spake, and Malgorzata Lagisz
+
+# Update
+
+Last update January 2023
+
 # Preface
 
 This step-by-step tutorial is a supplement to our methodological guideline paper invited by [Environmental Evidence](https://environmentalevidencejournal.biomedcentral.com) - the official journal of the [Collaboration for Environmental Evidence (CEE)](https://environmentalevidence.org/). 
@@ -1408,7 +1416,7 @@ profile(mod_MLMR_lnRR_whole, sigm2=1, progbar=FALSE) # check the estimates of be
 profile(mod_MLMR_lnRR_whole, sigm2=1, progbar=FALSE)
 ```
 
-For the variance component profiles we know that their estimates are quite stable, as the likelihood goes down quickly after identifying the maximum value (vertical line). This basically means that the estimates of the model parameters are trustful. But this is not always the case for the complex meta-analytic models. Note that in this example, we used Quasi-Newton method to find the maximum (log)likelihood over parameters like variance components (REML does not have a close-form solution, so we have to use numerical optimization techniques).
+From the variance component profiles, we know that their estimates are quite stable, as the likelihood goes down quickly after identifying the maximum value (vertical line). This basically means that the estimates of the model parameters are trustful. But this is not always the case for the complex meta-analytic models. Note that in this example, we used Quasi-Newton method to find the maximum (log)likelihood over parameters like variance components (REML does not have a close-form solution, so we have to use numerical optimization techniques).
 
 ## Conducting sensitivity analysis & critical appraisal
 
