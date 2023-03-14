@@ -2,7 +2,7 @@
 title: "Quantitative evidence synthesis: a practical guide on meta-analysis, meta-regression, and publication bias tests for environmental sciences"
 subtitle: "A step-by-step tutorial along with theoretical explanation"
 author: "Shinichi Nakagawa, Yefeng Yang, Erin Macartney, Rebecca Spake, and Malgorzata Lagisz"
-date: "last update January 2023"
+date: "last update March 2023"
 output:
 #  rmdformats::readthedown: 
   rmdformats::robobook:
@@ -56,7 +56,7 @@ If our paper and tutorial have helped you, please cite the following paper:
 
 ## Contact
 
-If you have any questions, mistakes, or bug to report, please contact:
+If you have any questions, mistakes, or bug to report, please contact corresponding authors:
 
 - Dr. Yefeng Yang
 
@@ -110,7 +110,7 @@ pacman::p_load(tidyverse,
                readxl, 
                metafor,
                clubSandwich,
-               orchaRd, 
+               #orchaRd, 
                MuMIn,
                glmulti,
                metagear,
@@ -137,104 +137,18 @@ pacman::p_load(tidyverse,
 
 # Load custom functions
 
-We also provide some additional helper functions that are necessary for our worked examples. Paste the source code (included in custom_func.R) into the console, and hit "Enter" to let `R` "learn" these custom functions.
+We also provide some additional helper functions that are necessary for our worked examples. The most straightforward way to use these custom functions is to source them with:
+
+<pre class="code rsplus">
+source(here("custom_func","custom_func.R"))
+</pre>
+
+Alternatively, paste the source code (included in the file custom_func.R) into the console, and hit "Enter" to let `R` "learn" these custom functions.
 
 ```{r custom functions}
-############################################################################
-#' @title cv_avg
-#' @description Calculates the weighted average CV^2 within a study and the weighted average CV^2 across a study
-cv_avg <- function(x, sd, n, group, data, label = NULL, sub_b = TRUE, cv2=FALSE){
-
-  # Check if the name is specified or not. If not, then assign it the name of the mean, x, variable input in the function. https://stackoverflow.com/questions/60644445/converting-tidyeval-arguments-to-string
-  if(is.null(label)){
-    label <- purrr::map_chr(enquos(x), rlang::as_label)
-  }
-
-  # Calculate between study CV. Take weighted mean CV within study, and then take a weighted mean across studies of the within study CV. Weighted based on sample size and pooled sample size.
-  b_grp_cv_data <- data                                             %>%
-    dplyr::group_by({{group}})                            %>%
-    dplyr::mutate(   w_CV2 = weighted_CV({{sd}}, {{x}}, {{n}}, cv2=cv2),
-                     n_mean = mean({{n}}, na.rm = TRUE))   %>%
-    dplyr::ungroup(.)                                     %>%
-    dplyr::mutate(b_CV2 = weighted.mean(w_CV2, n_mean, na.rm = TRUE), .keep = "used")
-
-  # Make sure that label of the calculated columns is distinct from any other columns
-  names(b_grp_cv_data) <- paste0(names(b_grp_cv_data), "_", label)
-
-  # Append these calculated columns back to the original data and return the full dataset.
-  if(sub_b){
-    b_grp_cv_data <- b_grp_cv_data %>% dplyr::select(grep("b_", names(b_grp_cv_data)))
-    dat_new <- cbind(data, b_grp_cv_data)
-  } else {
-    dat_new <- cbind(data, b_grp_cv_data)
-  }
-
-  return(data.frame(dat_new))
-}
-
-############################################################################
-
-#' @title weighted_CV
-#' @description Calculates the weighted average CV^2 or CV followed by squaring within a study and the weighted averages CV^2 across a studies
-weighted_CV <- function(sd, x, n, cv2=FALSE){
-  if(cv2){
-    weighted.mean(na_if((sd / x)^2, Inf), n, na.rm = TRUE)
-  }else{
-    weighted.mean(na_if((sd / x), Inf), n, na.rm = TRUE)^2
-  }
-}
-
-############################################################################
-
-#' @title get_est
-#' @description Extracts estimates from rma.mv and rma model objects
-get_est <- function(model){
-  est <- coef(model)
-  ci.lb <- model$ci.lb
-  ci.ub <- model$ci.ub
-  se <- model$se
-  return(data.frame(Est. = est, SE=se, "95% LCI" = ci.lb, "95% UCI" = ci.ub, check.names = FALSE))
-}
-
-############################################################################
-
-#' @title lnrr_laj
-#' @description Calculates log response ratio based on Taylor expansion from Jajeunesse 2011
-lnrr_laj <- function(m1, m2, cv1_2, cv2_2, n1, n2){
-  log(m1 / m2) + 0.5*((cv1_2 / n1) - (cv2_2 / n2))
-}
-
-############################################################################
-
-#' @title v_lnrr_laj
-#' @description Calculates the sampling variance for log response ratio based on second order Taylor expansion proposed by Lajeunesse 2011
-v_lnrr_laj <- function(cv1_2, cv2_2, n1, n2){
-  ((cv1_2) / n1) + ((cv2_2) / n2) +
-    ((cv1_2)^2 / (2*n1)^2) + ((cv2_2)^2 / (2*n2)^2)
-}
-
-############################################################################
-
-#' @title gen.miss
-#' @description Generates random missing data in two columns of a meta-analytic dataset
-gen.miss <- function(data, missVar, missCol2, n_miss){
-  data[sample(rownames(data), n_miss), missVar] <- NA
-  data[is.na(data[,missVar]), missCol2] <- NA
-  return(data)
-}
-
-############################################################################
-#' @title estimates.model
-#' @description Extract mean and CI from each metafor model
-estimates.model <- function(model){
-  db.mf <- data.frame(round(model$b, 3),row.names = 1:nrow(model$b))
-  db.mf <- cbind(db.mf,round(model$ci.lb, 3),round(model$ci.ub,3),row.names(model$b))
-  names(db.mf) <- c("mean","lower","upper","estimate")
-  return(db.mf[,c("estimate","mean","lower","upper")])
-}
-
-############################################################################
+source(here("custom_func","custom_func.R"))
 ```
+
 
 # Estimating an effect size statistic {.tabset} 
 
@@ -244,7 +158,7 @@ Meta-analyses express the outcome of multiple studies on a common scale, through
 
 - Single-group effects 
 
-A statistical summary from one group; e.g., proportion, mean, log standard deviation (lnSD), log coefficient of variation (lnCV).
+A statistical summary from one group; e.g., proportion, mean, log standard deviation (lnSD), log coefficient of variation (lnCVR).
  
 - Comparative effects 
 
@@ -429,9 +343,8 @@ It should be noted by fitting the above two traditional models, we assume that t
 
 - **Technical Recommendation**
 
-Setting `method = "REML"` fits a random-effects model using the restricted maximum likelihood estimator to calculate the maximum likelihood of heterogeneity and corresponding model coefficients (e.g., $\beta_0$). We can also fit a random-effectss model with the above syntax but setting the `method` argument to different estimators for calculating heterogeneity:
-`method = "ML"`: maximum likelihood estimator; `method="DL"` -  DerSimonian-Laird estimator; `method = "HE"`: Hedges estimator. **REML** is **recommended overall** because various simulation work demonstrates that it can produce (approximately) unbiased estimate of variance components (e.g., $\tau^2$). It is worth noting that some software do not use REML as the default estimator, such as **Review Manager**, **MetaWin**.
-
+Setting `method = "REML"` fits a random-effects model using the restricted maximum likelihood estimator to calculate the maximum likelihood of heterogeneity and corresponding model coefficients (e.g., $\beta_0$). We can also fit a random-effects model with the above syntax but setting the `method` argument to different estimators for estimating variance components:
+`method = "PM"`: Paule-Mandel method; `method = "ML"`: maximum likelihood estimator; `method="DL"` -  DerSimonian-Laird estimator; `method = "HE"`: Hedges estimator. Generally, we recommend **REML** as it can produce (approximately) unbiased estimates of variance components (e.g., $\tau^2$) according to various simulation works. But note that the Paule-Mandel method has superior properties for common effect size measures, such as SMD, in the context of random-effects model. Paule-Mandel method is recommended when fitting traditional random-effects models. However, the Paule-Mandel method does not generalize straightforwardly to multilevel models. Put differently, Paule-Mandel method is not feasible in `rma.mv` function. 
 
 ## Multilevel meta-analytic model {.tabset}
 
@@ -1087,7 +1000,7 @@ orchard_plot(mod_multilevel_SMD,
              scale_x_discrete(labels = c("Overall effect (meta-analytic lnRR)"))
 </pre>
 
-```{r Fig. S2}
+```{r Fig. S2, warning=FALSE}
 # make an orchard plot
 orchard_plot(mod_ML_lnRR_VCV, 
              mod = "1", 
@@ -1096,6 +1009,10 @@ orchard_plot(mod_ML_lnRR_VCV,
              data = dat2_Midolo_2019) + 
              scale_x_discrete(labels = c("Overall effect")) 
 ```
+
+
+
+
 
 __Figure S2__  
 Orchard plot (forest-like plot) showing the effect sizes from each study (and their 95% CIs), the overall effect and its 95% CIs and 95% prediction intervals.  
@@ -1157,7 +1074,7 @@ bubble_plot(mod_MLMR_lnRR_elevation,
                   plot.title = element_text(size = 12, colour = "black"))
 </pre>
 
-```{r Fig. S4}
+```{r Fig. S4, warning=FALSE}
 bubble_plot(mod_MLMR_lnRR_elevation, 
             mod = "elevation_log", 
             xlab = "Elevation (log-transformed)", ylab = "Effect size lnRR",
@@ -1255,13 +1172,31 @@ Bubble plot showing the relationship between the effect size magnitude and its a
 
 ```{r Fig. S6}
 # make a funnel plot
-funnel(mod_MLMR_lnRR_ess.se, yaxis = "seinv", 
+funnel(mod_MLMR_lnRR_ess.se, yaxis = "seinv",
+       xlim = c(-3, 3),
        ylab = "Precision (1/SE)",
        xlab = "Effect size lnRR")
 ```
 
 __Figure S6__  
-Visual inspection of the funnel plot to identify the small study effect.
+Visual inspection of the typical funnel plot to identify the small study effect.
+
+During the peer review stage, one referee suggested using the ‘effective’ sample size rather than inverse standard error. We do agree with this point. Therefore, we added a new funnel plot using effective sample sizes as y-axis in this tutorial (**Figure S6.2**). It is important to note that funnel plots using either inverse standard error or ‘effective’ sample size are not reliable for detecting publication bias. This is because they are only visual checks. To properly detect publication bias, a regression-based statistical test needs to be used, as shown above.
+
+```{r Fig. S6.2}
+n_tilde_cal <- function(dat){(dat$n_control * dat$n_treatment) / (dat$n_control + dat$n_treatment)} 
+# calculate tilde N
+dat2_Midolo_2019$n_tilde <- n_tilde_cal(dat2_Midolo_2019)
+
+funnel(dat2_Midolo_2019$lnRR, dat2_Midolo_2019$lnRRV, ni = dat2_Midolo_2019$n_tilde, 
+       yaxis = "ni",
+       xlim = c(-3, 3),
+       ylab = "Effective sample size",
+       xlab = "Effect size (lnRR)")
+```
+
+__Figure S6.2__  
+Visual inspection of the funnel plot based on effective sample size to identify the small study effect.
 
 - **Detecting decline effect**
 
