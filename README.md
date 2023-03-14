@@ -28,4 +28,4 @@ We thank the these two research groups for their advocacy of Open Science practi
 
 If our paper and tutorial have helped you, please cite the following paper (preprint):
 
-> Shinichi Nakagawa, Yefeng Yang, Erin Macartney, Rebecca Spake, and Malgorzata Lagisz. Quantitative synthesis: a practical guide on meta-analysis, meta-regression, and publication bias tests for environmental sciences. [EcoEvoRxiv]()
+> Shinichi Nakagawa, Yefeng Yang, Erin Macartney, Rebecca Spake, and Malgorzata Lagisz. Quantitative synthesis: a practical guide on meta-analysis, meta-regression, and publication bias tests for environmental sciences. [EcoEvoRxiv](https://ecoevorxiv.org/repository/view/4891/) (minor revision at Envioronmental Evidence)
