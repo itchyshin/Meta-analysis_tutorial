@@ -1833,7 +1833,7 @@ We see that results given under **Variance Components** show variance components
 
 **Note**
 
-According to our survey, only a few (XX%) environmental meta-analyses used multilevel model. Therefore, environmental meta-analysts may be not familiar with 'random effects'? Many researchers have attempted to define it ( [see Andrew Gelman's nice summary](https://statmodeling.stat.columbia.edu/2005/01/25/why_i_dont_use/) ).  Here, we give an intuitive explanation in the context of a environmental meta-analysis: 
+According to our survey, only a few environmental meta-analyses used multilevel model. Therefore, environmental meta-analysts may be not familiar with 'random effects'? Many researchers have attempted to define it ( [see Andrew Gelman's nice summary](https://statmodeling.stat.columbia.edu/2005/01/25/why_i_dont_use/) ).  Here, we give an intuitive explanation in the context of a environmental meta-analysis: 
 
 > When a variable in a meta-analytic model is specified as a random effect, we believe that it contributes noise (variation) to the overall mean and thus has a random effect on the overall mean. For example, treating 'species' as a random effect assumes that the true effects are heterogeneous within species and enables us to quantify how much variation there is among species. On the other hand, treating species as a fixed effect means that species levels are identical across different studies and thus have a systematic effect on the overall effect; this is equivalent to ask: do one species responds more to an environmental stressor than others?). 
 
